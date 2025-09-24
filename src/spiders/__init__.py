@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Dict, Type
 
 from .example_spider import ExampleSpider
+from .realtor_spider import RealtorSpider
 from ..core.base_spider import BaseSpider
 
 SPIDER_REGISTRY: Dict[str, Type[BaseSpider]] = {
     ExampleSpider.name: ExampleSpider,
+    RealtorSpider.name: RealtorSpider,
 }
 
 

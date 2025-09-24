@@ -6,6 +6,13 @@ import argparse
 import json
 from typing import Sequence
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.core.http_client import HttpClient, HttpRequest
 from src.settings import load_config, load_default_headers
 from src.utils.logging import configure_logging, get_logger
