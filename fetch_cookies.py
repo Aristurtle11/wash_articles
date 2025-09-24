@@ -13,35 +13,7 @@ import zlib
 
 COOKIE_JAR_FILE = "cookies.txt"
 HEADERS_FILE = "default_headers.json"
-
-
-DEFAULT_HEADERS_TEMPLATE = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/139.0.0.0 Safari/537.36"
-    ),
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,"\
-        "image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
-    ),
-    "Accept-Language": "zh-CN,zh;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "Referer": "https://www.realtor.com/",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1",
-    "Sec-CH-UA": '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
-    "Sec-CH-UA-Mobile": "?0",
-    "Sec-CH-UA-Platform": '"Windows"',
-    "DNT": "1",
-    "Priority": "u=0, i",
-    "Cookie": "KP_UIDz=03d8PZjH7PAqHcJvX8aUEiMKlUHeKgF1xpATLJUH1PRH5M8AH9AK1nRELidVnvypeYwoOZMy7hwuoBBk8Z1mOyZXhSiVOVGRSmDZJRu5kYuHIangs7oSvtSS46Lc6oXs5jPpOvDUpccc2DOrT97VGJFpgECDfsenaJnCh92Y7nDkZp; KP_UIDz-ssn=03d8PZjH7PAqHcJvX8aUEiMKlUHeKgF1xpATLJUH1PRH5M8AH9AK1nRELidVnvypeYwoOZMy7hwuoBBk8Z1mOyZXhSiVOVGRSmDZJRu5kYuHIangs7oSvtSS46Lc6oXs5jPpOvDUpccc2DOrT97VGJFpgECDfsenaJnCh92Y7nDkZp; __bot=false; __ssn=612f7111-6674-42ce-aa98-60b2acf37a6b; __ssnstarttime=1758681753; __vst=3fff1967-043d-4f49-bfae-cad8ff2071bf; split=v; split_tcv=184"
-}
+HEADERS_TEMPLATE_FILE = "default_headers.template.json"
 
 
 def _decode_body(body: bytes, encoding: str) -> str:
@@ -70,6 +42,12 @@ def _decode_body(body: bytes, encoding: str) -> str:
     return f"<unsupported encoding {encoding}>"
 
 
+def _load_headers_template() -> dict[str, str]:
+    with open(HEADERS_TEMPLATE_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        return {str(k): str(v) for k, v in data.items()}
+
+
 def load_default_headers() -> dict[str, str]:
     if os.path.exists(HEADERS_FILE):
         try:
@@ -78,7 +56,14 @@ def load_default_headers() -> dict[str, str]:
                 return {str(k): str(v) for k, v in data.items()}
         except (OSError, json.JSONDecodeError):
             pass
-    return DEFAULT_HEADERS_TEMPLATE.copy()
+    try:
+        headers = _load_headers_template()
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Unable to load header template from {HEADERS_TEMPLATE_FILE}."
+        ) from exc
+    save_default_headers(headers)
+    return dict(headers)
 
 
 def save_default_headers(headers: dict[str, str]) -> None:
