@@ -4,7 +4,6 @@ import io
 import json
 import os
 import random
-import re
 import time
 import urllib.error
 import urllib.parse
@@ -13,9 +12,10 @@ import zlib
 
 
 COOKIE_JAR_FILE = "cookies.txt"
+HEADERS_FILE = "default_headers.json"
 
 
-DEFAULT_HEADERS = {
+DEFAULT_HEADERS_TEMPLATE = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -70,8 +70,34 @@ def _decode_body(body: bytes, encoding: str) -> str:
     return f"<unsupported encoding {encoding}>"
 
 
-def _escape_cookie_value_for_source(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+def load_default_headers() -> dict[str, str]:
+    if os.path.exists(HEADERS_FILE):
+        try:
+            with open(HEADERS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return {str(k): str(v) for k, v in data.items()}
+        except (OSError, json.JSONDecodeError):
+            pass
+    return DEFAULT_HEADERS_TEMPLATE.copy()
+
+
+def save_default_headers(headers: dict[str, str]) -> None:
+    try:
+        with open(HEADERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(headers, f, ensure_ascii=True, indent=2, sort_keys=True)
+    except OSError:
+        pass
+
+
+def update_cookie_header_in_config(headers: dict[str, str], new_cookie_header: str) -> bool:
+    if not new_cookie_header:
+        return False
+    current = headers.get("Cookie", "")
+    if current == new_cookie_header:
+        return False
+    headers["Cookie"] = new_cookie_header
+    save_default_headers(headers)
+    return True
 
 
 def _cookie_header_from_jar_for_url(jar: http.cookiejar.CookieJar, url: str) -> str:
@@ -80,89 +106,15 @@ def _cookie_header_from_jar_for_url(jar: http.cookiejar.CookieJar, url: str) -> 
     jar.add_cookie_header(req)
     return req.get_header("Cookie", "")
 
-
-def _update_cookie_header_in_source(new_cookie_header: str, *, source_path: str | None = None) -> bool:
-    """Update the DEFAULT_HEADERS["Cookie"] literal in this source file.
-
-    Returns True if an update was applied.
-    """
-    if not new_cookie_header:
-        return False
-    path = source_path or __file__
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except OSError:
-        return False
-
-    # Replace the first occurrence of the Cookie header value inside DEFAULT_HEADERS.
-    pattern = r'(\"Cookie\"\s*:\s*)\"[^\"]*\"'
-    replacement = r"\\1\"" + _escape_cookie_value_for_source(new_cookie_header) + r"\""
-    new_content, n = re.subn(pattern, replacement, content, count=1)
-    if n == 0:
-        # Fallback with a simpler pattern (no escaped quotes in source)
-        pattern2 = r'("Cookie"\s*:\s*)"[^"]*"'
-        replacement2 = r'\1"' + _escape_cookie_value_for_source(new_cookie_header) + r'"'
-        new_content, n = re.subn(pattern2, replacement2, content, count=1)
-    if n == 0 or new_content == content:
-        return False
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        return True
-    except OSError:
-        return False
-
-
-def update_cookie_header_in_source_safe(new_cookie_header: str, *, source_path: str | None = None) -> bool:
-    """Robustly update DEFAULT_HEADERS["Cookie"] in this file.
-
-    - Uses a lambda replacement to avoid backreference escape issues.
-    - If the Cookie line is missing/corrupted, inserts a fixed line after the
-      "Priority" header within DEFAULT_HEADERS.
-    """
-    if not new_cookie_header:
-        return False
-    path = source_path or __file__
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except OSError:
-        return False
-
-    escaped = _escape_cookie_value_for_source(new_cookie_header)
-    # Try replacing an existing Cookie line.
-    pattern = r'("Cookie"\s*:\s*)"[^"]*"'
-    new_content, n = re.subn(pattern, lambda m: m.group(1) + '"' + escaped + '"', content, count=1)
-    if n == 0:
-        # Insert/fix the Cookie line right after the Priority line.
-        mp = re.search(r'(?m)^(\s*)"Priority"\s*:\s*.*$', content)
-        if not mp:
-            return False
-        indent = mp.group(1)
-        eol = content.find("\n", mp.end())
-        if eol == -1:
-            return False
-        next_start = eol + 1
-        next_eol = content.find("\n", next_start)
-        if next_eol == -1:
-            next_eol = len(content)
-        cookie_line = f'{indent}"Cookie": "{escaped}"\n'
-        new_content = content[:next_start] + cookie_line + content[next_eol:]
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        return True
-    except OSError:
-        return False
-
 def fetch_cookies(
     url: str,
     headers: dict[str, str] | None = None,
     *,
     min_delay: float = 0.0,
     max_delay: float = 0.0,
-) -> http.cookiejar.CookieJar:
+    max_attempts: int = 3,
+    backoff_factor: float = 1.5,
+) -> tuple[http.cookiejar.CookieJar, dict[str, str]]:
     # Persist cookies across runs
     jar = http.cookiejar.MozillaCookieJar(COOKIE_JAR_FILE)
     if os.path.exists(COOKIE_JAR_FILE):
@@ -171,7 +123,7 @@ def fetch_cookies(
         except (OSError, http.cookiejar.LoadError):
             pass
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-    request_headers = DEFAULT_HEADERS.copy()
+    request_headers = load_default_headers()
     if headers:
         request_headers.update(headers)
     # Prefer cookies from the persisted jar for this URL
@@ -183,20 +135,39 @@ def fetch_cookies(
         request_headers["Cookie"] = jar_cookie_header
     request = urllib.request.Request(url=url, headers=request_headers)
     delay = random.uniform(min_delay, max_delay) if max_delay > 0 else 0.0
-    if delay > 0:
-        time.sleep(delay)
-    with opener.open(request, timeout=10) as response:
-        body = response.read()
-        encoding = response.headers.get("Content-Encoding", "").lower()
-        decoded = _decode_body(body, encoding)
-        print("Response snippet:", json.dumps(decoded[:200]))
+    attempt = 0
+    while True:
+        try:
+            if attempt == 0 and delay > 0:
+                time.sleep(delay)
+            with opener.open(request, timeout=10) as response:
+                body = response.read()
+                encoding = response.headers.get("Content-Encoding", "").lower()
+                decoded = _decode_body(body, encoding)
+                print("Response snippet:", json.dumps(decoded[:200]))
+            break
+        except urllib.error.HTTPError as exc:
+            attempt += 1
+            if exc.code != 429 or attempt >= max_attempts:
+                raise
+            retry_after = exc.headers.get("Retry-After")
+            try:
+                wait_seconds = float(retry_after) if retry_after else 0.0
+            except (TypeError, ValueError):
+                wait_seconds = 0.0
+            if wait_seconds <= 0.0:
+                wait_seconds = backoff_factor * attempt
+            jitter = random.uniform(0, 0.25 * wait_seconds)
+            total_wait = wait_seconds + jitter
+            print(f"Received 429. Waiting {total_wait:.2f}s before retry {attempt}/{max_attempts - 1}...")
+            time.sleep(total_wait)
 
     # Save cookies we received for future runs
     try:
         jar.save(ignore_discard=True, ignore_expires=True)
     except OSError:
         pass
-    return jar
+    return jar, request_headers
 
 
 def main() -> None:
@@ -204,25 +175,25 @@ def main() -> None:
     # Use query parameters if the site requires them; change as needed.
     query = urllib.parse.urlencode({})
     url = f"{base_url}?{query}" if query else base_url
-    cookies = fetch_cookies(url, min_delay=0.5, max_delay=1.5)
-    if not cookies:
+    jar, base_headers = fetch_cookies(url, min_delay=0.5, max_delay=1.5)
+    if not jar:
         print("No cookies were returned.")
         return
 
     print("Cookies from", url)
-    for cookie in cookies:
+    for cookie in jar:
         print(f"{cookie.name}={cookie.value}")
 
-    # Build a fresh Cookie header for this URL from the jar and update source
+    # Build a fresh Cookie header for this URL from the jar and update config
     try:
-        cookie_header = _cookie_header_from_jar_for_url(cookies, url)
+        cookie_header = _cookie_header_from_jar_for_url(jar, url)
     except Exception:
         cookie_header = ""
     if cookie_header:
-        if update_cookie_header_in_source_safe(cookie_header):
-            print("Updated hardcoded Cookie header in fetch_cookies.py")
+        if update_cookie_header_in_config(base_headers, cookie_header):
+            print("Updated stored Cookie header in default_headers.json")
         else:
-            print("Cookie header unchanged in source (no update needed)")
+            print("Cookie header unchanged in config (no update needed)")
 
 
 if __name__ == "__main__":
