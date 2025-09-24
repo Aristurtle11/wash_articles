@@ -272,14 +272,13 @@ def main() -> None:
     # Use query parameters if the site requires them; change as needed.
     query = urllib.parse.urlencode({})
     url = f"{base_url}?{query}" if query else base_url
+    print("Getting Cookie")
     jar, base_headers = fetch_cookies(url, min_delay=0.5, max_delay=1.5)
     if not jar:
         print("No cookies were returned.")
         return
 
-    print("Cookies from", url)
-    for cookie in jar:
-        print(f"{cookie.name}={cookie.value}")
+    print("Cookies get successfully")
 
     # Build a fresh Cookie header for this URL from the jar and update config
     try:
@@ -294,6 +293,10 @@ def main() -> None:
 
     print("Fetching page with updated cookies…")
     html, _, _ = fetch_page(url, jar, base_headers)
+    ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    html_path = ASSET_DIR / "page.html"
+    html_path.write_text(html, encoding="utf-8")
+    print(f"Saved raw HTML to {html_path}")
     paragraphs = extract_core_paragraphs(html, url)
     if not paragraphs:
         print("No .core-paragraph sections found.")
