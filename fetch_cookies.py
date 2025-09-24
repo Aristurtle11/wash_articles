@@ -187,10 +187,24 @@ def fetch_page(
         return decoded, body, response_headers
 
 
-def _extract_from_dom(soup: BeautifulSoup, base_url: str) -> list[dict[str, Any]]:
+def _strip_html(text: str) -> str:
+    if not text:
+        return ""
+    soup = BeautifulSoup(text, "html.parser")
+    return soup.get_text(" ", strip=True)
+
+
+def _extract_from_dom(
+    soup: BeautifulSoup,
+    base_url: str,
+    hero: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = []
     paragraph_counter = 0
     image_counter = 0
+    if hero and hero.get("url"):
+        image_counter = 1
+        content.append(hero | {"sequence": image_counter})
     for node in soup.select(".core-paragraph, h2, h3, h4, figure"):
         if node.name in {"h2", "h3", "h4"}:
             classes = node.get("class", [])
@@ -247,10 +261,40 @@ def _extract_from_dom(soup: BeautifulSoup, base_url: str) -> list[dict[str, Any]
     return content
 
 
-def _extract_from_editor_blocks(blocks: Sequence[dict[str, Any]], base_url: str) -> list[dict[str, Any]]:
+def _hero_entry(hero_data: dict[str, Any], base_url: str) -> dict[str, Any] | None:
+    source = str(hero_data.get("sourceUrl") or "").strip()
+    if not source:
+        return None
+    absolute = urllib.parse.urljoin(base_url, source)
+    if not absolute:
+        return None
+    alt_text = str(hero_data.get("altText") or "").strip()
+    caption_html = hero_data.get("caption") or ""
+    caption = _strip_html(str(caption_html))
+    credit = str(hero_data.get("imageCredit") or "").strip()
+    return {
+        "kind": "image",
+        "sequence": 1,
+        "url": absolute,
+        "alt": alt_text,
+        "caption": caption,
+        "credit": credit,
+    }
+
+
+def _extract_from_editor_blocks(
+    blocks: Sequence[dict[str, Any]],
+    base_url: str,
+    hero: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = []
     paragraph_counter = 0
     image_counter = 0
+    if hero:
+        hero_entry = _hero_entry(hero, base_url)
+        if hero_entry:
+            content.append(hero_entry)
+            image_counter = hero_entry["sequence"]
     for block in blocks:
         typename = block.get("__typename")
         if typename == "CoreHeading":
@@ -307,10 +351,23 @@ def _extract_from_editor_blocks(blocks: Sequence[dict[str, Any]], base_url: str)
 
 def extract_article_content(html: str, base_url: str) -> list[dict[str, Any]]:
     soup = BeautifulSoup(html, "html.parser")
+    hero_entry: dict[str, Any] | None = None
     next_script = soup.find("script", id="__NEXT_DATA__")
     if next_script and next_script.string:
         try:
             data = json.loads(next_script.string)
+            page_props = data.get("props", {}).get("pageProps", {})
+            post_data = page_props.get("post", {})
+            hide_featured = post_data.get("hideFeaturedImageOnArticlePage")
+            if isinstance(hide_featured, dict):
+                hide_featured = hide_featured.get("hidefeaturedimage")
+            hero_node = (
+                {} if hide_featured else post_data.get("featuredImage", {})
+            )
+            if isinstance(hero_node, dict):
+                hero_node = hero_node.get("node") if "node" in hero_node else hero_node
+            if isinstance(hero_node, dict):
+                hero_entry = _hero_entry(hero_node, base_url)
             blocks = (
                 data.get("props", {})
                 .get("pageProps", {})
@@ -318,11 +375,11 @@ def extract_article_content(html: str, base_url: str) -> list[dict[str, Any]]:
                 .get("editorBlocks", [])
             )
             if isinstance(blocks, list) and blocks:
-                return _extract_from_editor_blocks(blocks, base_url)
+                return _extract_from_editor_blocks(blocks, base_url, hero=hero_node)
         except (json.JSONDecodeError, TypeError):
             pass
 
-    return _extract_from_dom(soup, base_url)
+    return _extract_from_dom(soup, base_url, hero=hero_entry)
 
 
 def _extension_from_url(url: str) -> str:
@@ -385,18 +442,6 @@ def save_article_to_disk(
     dest_dir.mkdir(parents=True, exist_ok=True)
     output_path = dest_dir / "core_paragraphs.txt"
     lines: list[str] = []
-    path_by_sequence: dict[int, pathlib.Path | None] = {}
-    for item in downloaded_images:
-        try:
-            sequence = int(item.get("sequence", 0))
-        except (TypeError, ValueError):
-            continue
-        if sequence <= 0:
-            continue
-        path_value = item.get("path")
-        if path_value is not None and not isinstance(path_value, pathlib.Path):
-            path_value = pathlib.Path(path_value)
-        path_by_sequence[sequence] = path_value
 
     for entry in content:
         kind = entry.get("kind")
@@ -417,25 +462,8 @@ def save_article_to_disk(
                 sequence_int = int(sequence)
             except (TypeError, ValueError):
                 sequence_int = 0
-            marker = f"[Image {sequence_int}]" if sequence_int else "[Image]"
+            marker = f"{{{{[Image {sequence_int}]}}}}" if sequence_int else "{{[Image]}}"
             lines.append(marker)
-            saved_path = path_by_sequence.get(sequence_int)
-            if saved_path:
-                lines.append(f"saved_as: {saved_path.name}")
-            else:
-                lines.append("saved_as: (not downloaded)")
-            url = entry.get("url") or ""
-            if url:
-                lines.append(f"source: {url}")
-            alt = (entry.get("alt") or "").strip()
-            if alt:
-                lines.append(f"alt: {alt}")
-            caption = (entry.get("caption") or "").strip()
-            if caption:
-                lines.append(f"caption: {caption}")
-            credit = (entry.get("credit") or "").strip()
-            if credit:
-                lines.append(f"credit: {credit}")
             lines.append("")
             continue
 
