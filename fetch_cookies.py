@@ -187,10 +187,29 @@ def fetch_page(
         return decoded, body, response_headers
 
 
-def extract_core_paragraphs(html: str, base_url: str) -> list[dict[str, Any]]:
+def extract_article_content(html: str, base_url: str) -> list[dict[str, Any]]:
     soup = BeautifulSoup(html, "html.parser")
-    paragraphs: list[dict[str, Any]] = []
-    for index, node in enumerate(soup.select(".core-paragraph"), start=1):
+    content: list[dict[str, Any]] = []
+    paragraph_counter = 0
+    for node in soup.select(".core-paragraph, h2, h3, h4"):
+        if node.name in {"h2", "h3", "h4"}:
+            classes = node.get("class", [])
+            is_article_heading = any(
+                cls in {"htWOzS"} or cls.startswith("core-heading") for cls in classes
+            )
+            if not is_article_heading:
+                continue
+            heading_text = node.get_text(strip=True)
+            if heading_text:
+                content.append(
+                    {
+                        "kind": "heading",
+                        "level": int(node.name[1]),
+                        "text": heading_text,
+                    }
+                )
+            continue
+
         text = node.get_text(strip=True)
         images: list[str] = []
         for img in node.find_all("img"):
@@ -201,8 +220,16 @@ def extract_core_paragraphs(html: str, base_url: str) -> list[dict[str, Any]]:
             if absolute not in images:
                 images.append(absolute)
         if text or images:
-            paragraphs.append({"index": index, "text": text, "images": images})
-    return paragraphs
+            paragraph_counter += 1
+            content.append(
+                {
+                    "kind": "paragraph",
+                    "index": paragraph_counter,
+                    "text": text,
+                    "images": images,
+                }
+            )
+    return content
 
 
 def _extension_from_url(url: str) -> str:
@@ -243,18 +270,23 @@ def download_images(
     return saved
 
 
-def save_paragraphs_to_disk(
-    paragraphs: list[dict[str, Any]],
+def save_article_to_disk(
+    content: list[dict[str, Any]],
     image_map: dict[str, pathlib.Path],
     dest_dir: pathlib.Path,
 ) -> pathlib.Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     output_path = dest_dir / "core_paragraphs.txt"
     lines: list[str] = []
-    for paragraph in paragraphs:
-        text = paragraph["text"] or "(no text)"
+    for entry in content:
+        if entry["kind"] == "heading":
+            lines.append(f"## {entry['text']}")
+            lines.append("")
+            continue
+
+        text = entry["text"] or "(no text)"
         lines.append(text)
-        images = paragraph["images"]
+        images = entry["images"]
         if images:
             lines.append("Images:")
             for img in images:
@@ -297,25 +329,29 @@ def main() -> None:
     html_path = ASSET_DIR / "page.html"
     html_path.write_text(html, encoding="utf-8")
     print(f"Saved raw HTML to {html_path}")
-    paragraphs = extract_core_paragraphs(html, url)
-    if not paragraphs:
+    content = extract_article_content(html, url)
+    if not content:
         print("No .core-paragraph sections found.")
         return
 
     all_image_urls: list[str] = []
-    for paragraph in paragraphs:
-        for img in paragraph["images"]:
+    paragraph_count = 0
+    for entry in content:
+        if entry["kind"] != "paragraph":
+            continue
+        paragraph_count += 1
+        for img in entry["images"]:
             if img not in all_image_urls:
                 all_image_urls.append(img)
 
-    print(f"Found {len(paragraphs)} paragraphs and {len(all_image_urls)} unique images.")
+    print(f"Found {paragraph_count} paragraphs and {len(all_image_urls)} unique images.")
     image_map = download_images(
         all_image_urls,
         jar=jar,
         headers=base_headers,
         dest_dir=ASSET_DIR,
     )
-    text_path = save_paragraphs_to_disk(paragraphs, image_map, ASSET_DIR)
+    text_path = save_article_to_disk(content, image_map, ASSET_DIR)
     print(f"Saved paragraph summary to {text_path}")
     if image_map:
         print(f"Saved {len(image_map)} images to {ASSET_DIR.resolve()}")
