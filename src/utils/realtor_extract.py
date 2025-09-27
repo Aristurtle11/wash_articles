@@ -18,6 +18,7 @@ from ..settings import load_default_headers
 def extract_article_content(html: str, base_url: str) -> list[dict[str, Any]]:
     soup = BeautifulSoup(html, "html.parser")
     hero_entry: dict[str, Any] | None = None
+    hero_node: dict[str, Any] | None = None
     next_script = soup.find("script", id="__NEXT_DATA__")
     if next_script and next_script.string:
         try:
@@ -27,11 +28,12 @@ def extract_article_content(html: str, base_url: str) -> list[dict[str, Any]]:
             hide_featured = post_data.get("hideFeaturedImageOnArticlePage")
             if isinstance(hide_featured, dict):
                 hide_featured = hide_featured.get("hidefeaturedimage")
-            hero_node = {} if hide_featured else post_data.get("featuredImage", {})
-            if isinstance(hero_node, dict):
-                hero_node = hero_node.get("node") if "node" in hero_node else hero_node
-            if isinstance(hero_node, dict):
-                hero_entry = _hero_entry(hero_node, base_url)
+            hero_candidate = {} if hide_featured else post_data.get("featuredImage", {})
+            if isinstance(hero_candidate, dict):
+                hero_candidate = hero_candidate.get("node") if "node" in hero_candidate else hero_candidate
+            if isinstance(hero_candidate, dict):
+                hero_node = hero_candidate
+                hero_entry = _hero_entry(hero_candidate, base_url)
             blocks = (
                 data.get("props", {})
                 .get("pageProps", {})
@@ -39,7 +41,7 @@ def extract_article_content(html: str, base_url: str) -> list[dict[str, Any]]:
                 .get("editorBlocks", [])
             )
             if isinstance(blocks, list) and blocks:
-                return _extract_from_editor_blocks(blocks, base_url, hero=hero_entry)
+                return _extract_from_editor_blocks(blocks, base_url, hero=hero_node)
         except (json.JSONDecodeError, TypeError):
             pass
 
