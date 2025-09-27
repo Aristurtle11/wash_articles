@@ -7,7 +7,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 JSON_PATH="$PROJECT_ROOT/src/settings/default_headers.json"
 TEMPLATE_PATH="$PROJECT_ROOT/src/settings/default_headers.template.json"
 DATA_DIR="$PROJECT_ROOT/data"
-ASSET_DIR="$PROJECT_ROOT/asset"
 
 if [[ -e "$JSON_PATH" ]]; then
   echo "Renaming default_headers.json to default_headers.template.json (overwriting existing template)."
