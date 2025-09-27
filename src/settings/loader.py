@@ -40,7 +40,18 @@ class AppConfig:
     default_spider: str
     http: HttpSettings
     paths: PathSettings
+    ai: "AISettings"
     spiders: dict[str, dict[str, str]]
+
+
+@dataclass(slots=True)
+class AISettings:
+    model: str
+    prompt_path: Path
+    output_dir: Path
+    input_glob: str
+    target_language: str
+    timeout: float
 
 
 def _to_path(value: str | None, *, fallback: Path) -> Path:
@@ -75,6 +86,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
     app_section = parser["app"] if parser.has_section("app") else {}
     paths_section = parser["paths"] if parser.has_section("paths") else {}
     http_section = parser["http"] if parser.has_section("http") else {}
+    ai_section = parser["ai"] if parser.has_section("ai") else {}
 
     data_dir = _to_path(paths_section.get("data_dir"), fallback=PROJECT_ROOT / "data")
     raw_dir = _to_path(paths_section.get("raw_dir"), fallback=data_dir / "raw")
@@ -94,6 +106,21 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         backoff_factor=float(http_section.get("backoff_factor", 1.5)),
     )
 
+    ai_settings = AISettings(
+        model=ai_section.get("model", "gemini-1.5-flash"),
+        prompt_path=_to_path(
+            ai_section.get("prompt_path"),
+            fallback=PROJECT_ROOT / "prompts" / "translation_prompt.txt",
+        ),
+        output_dir=_to_path(
+            ai_section.get("output_dir"),
+            fallback=PROJECT_ROOT / "data" / "translated",
+        ),
+        input_glob=ai_section.get("input_glob", "data/raw/**/*.txt"),
+        target_language=ai_section.get("target_language", "zh-CN"),
+        timeout=float(ai_section.get("timeout", 30)),
+    )
+
     spiders: dict[str, dict[str, str]] = {}
     for section in parser.sections():
         if section.lower().startswith("spider:"):
@@ -111,6 +138,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
             state_dir=state_dir,
             cookie_jar=cookie_path,
         ),
+        ai=ai_settings,
         spiders=spiders,
     )
     return config

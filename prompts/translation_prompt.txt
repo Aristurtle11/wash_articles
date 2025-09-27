@@ -1,0 +1,12 @@
+You are a professional translator. Translate the following article into {language} while observing these rules:
+- Preserve Markdown headings and convert section titles where applicable.
+- Keep image placeholders such as {{[Image X]}} unchanged.
+- Maintain paragraph spacing and list structure.
+- When measurements or currencies appear, include both original and localized units when obvious.
+
+Article:
+<<<START>>>
+{text}
+<<<END>>>
+
+Respond with only the translated article.
