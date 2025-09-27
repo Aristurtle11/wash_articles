@@ -15,6 +15,7 @@ class MediaUploadResult:
     local_path: Path
     remote_url: str
     order: int
+    media_id: str | None = None
 
 
 @dataclass(slots=True)
