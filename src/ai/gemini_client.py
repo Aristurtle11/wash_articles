@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -46,6 +47,8 @@ class GeminiClient:
         model: str = "gemini-1.5-flash",
         base_url: str = "https://generativelanguage.googleapis.com/v1beta",
         timeout: float = 30.0,
+        max_retries: int = 3,
+        backoff_seconds: float = 2.0,
         generation_config: GenerationConfig | None = None,
     ) -> None:
         self._api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -55,6 +58,8 @@ class GeminiClient:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._generation_config = generation_config or GenerationConfig()
+        self._max_retries = max(1, int(max_retries))
+        self._backoff = max(0.0, float(backoff_seconds))
         self._opener = urllib.request.build_opener()
 
     @property
@@ -65,13 +70,13 @@ class GeminiClient:
         """Send a translation request and return the text of the first candidate."""
         url = f"{self._base_url}/models/{urllib.parse.quote(self._model)}:generateContent?key={urllib.parse.quote(self._api_key)}"
         payload: dict[str, Any] = {
-            "systemInstruction": {
-                "parts": [{"text": prompt}]
-            },
             "contents": [
                 {
                     "role": "user",
-                    "parts": [{"text": user_text}],
+                    "parts": [
+                        {"text": prompt},
+                        {"text": user_text},
+                    ],
                 }
             ],
             "generationConfig": self._generation_config.as_dict(),
@@ -81,32 +86,73 @@ class GeminiClient:
             url=url,
             data=data,
             method="POST",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": self._api_key,
+            },
         )
-        LOGGER.debug("Sending request to Gemini model=%s payload_size=%d", self._model, len(data))
-        try:
-            with self._opener.open(request, timeout=self._timeout) as response:
-                body = response.read()
-                status = getattr(response, "status", 200)
-        except urllib.error.HTTPError as exc:  # pragma: no cover - network errors difficult to test offline
-            error_body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
-            LOGGER.error("Gemini HTTPError %s: %s", exc.code, error_body)
-            raise GeminiError(f"Gemini API error {exc.code}: {error_body}") from exc
-        except urllib.error.URLError as exc:  # pragma: no cover
-            raise GeminiError(f"Gemini API connection error: {exc}") from exc
+        for attempt in range(1, self._max_retries + 1):
+            start = time.monotonic()
+            LOGGER.info(
+                "Gemini request start model=%s payload_bytes=%d timeout=%.1fs attempt=%d/%d",
+                self._model,
+                len(data),
+                self._timeout,
+                attempt,
+                self._max_retries,
+            )
+            try:
+                with self._opener.open(request, timeout=self._timeout) as response:
+                    body = response.read()
+                    status = getattr(response, "status", 200)
+            except TimeoutError as exc:  # pragma: no cover
+                duration = time.monotonic() - start
+                LOGGER.warning(
+                    "Gemini request timed out after %.2fs on attempt %d/%d",
+                    duration,
+                    attempt,
+                    self._max_retries,
+                )
+                if attempt >= self._max_retries:
+                    raise GeminiError(
+                        f"Gemini API read timed out after {duration:.2f}s on attempt {attempt}."
+                    ) from exc
+                time.sleep(self._backoff * attempt)
+                continue
+            except urllib.error.HTTPError as exc:
+                error_body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
+                LOGGER.error("Gemini HTTPError %s on attempt %d: %s", exc.code, attempt, error_body)
+                raise GeminiError(f"Gemini API error {exc.code}: {error_body}") from exc
+            except urllib.error.URLError as exc:
+                duration = time.monotonic() - start
+                LOGGER.warning(
+                    "Gemini URLError after %.2fs on attempt %d/%d: %s",
+                    duration,
+                    attempt,
+                    self._max_retries,
+                    exc,
+                )
+                if attempt >= self._max_retries:
+                    raise GeminiError(f"Gemini API connection error: {exc}") from exc
+                time.sleep(self._backoff * attempt)
+                continue
 
-        if status >= 400:
-            raise GeminiError(f"Gemini API returned status {status}")
+            if status >= 400:
+                raise GeminiError(f"Gemini API returned status {status}")
 
-        try:
-            payload = json.loads(body)
-        except json.JSONDecodeError as exc:
-            raise GeminiError(f"Failed to decode Gemini response: {exc}\nRaw: {body[:200]!r}") from exc
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError as exc:
+                raise GeminiError(f"Failed to decode Gemini response: {exc}\nRaw: {body[:200]!r}") from exc
 
-        text = self._extract_text(payload)
-        if text is None:
-            raise GeminiError(f"Gemini response missing candidates: {json.dumps(payload)[:500]}")
-        return text
+            text = self._extract_text(payload)
+            if text is None:
+                raise GeminiError(f"Gemini response missing candidates: {json.dumps(payload)[:500]}")
+            duration = time.monotonic() - start
+            LOGGER.info("Gemini request succeeded in %.2fs on attempt %d", duration, attempt)
+            return text
+
+        raise GeminiError("Gemini request failed after retries")
 
     def _extract_text(self, payload: Mapping[str, Any]) -> str | None:
         candidates = payload.get("candidates")

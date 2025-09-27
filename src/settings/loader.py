@@ -52,6 +52,7 @@ class AISettings:
     input_glob: str
     target_language: str
     timeout: float
+    thinking_budget: int | None
 
 
 def _to_path(value: str | None, *, fallback: Path) -> Path:
@@ -119,6 +120,11 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         input_glob=ai_section.get("input_glob", "data/raw/**/*.txt"),
         target_language=ai_section.get("target_language", "zh-CN"),
         timeout=float(ai_section.get("timeout", 30)),
+        thinking_budget=(
+            int(ai_section.get("thinking_budget"))
+            if ai_section.get("thinking_budget") not in (None, "")
+            else None
+        ),
     )
 
     spiders: dict[str, dict[str, str]] = {}

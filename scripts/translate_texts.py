@@ -4,9 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.ai import TranslationConfig, Translator
 from src.settings import load_config
@@ -35,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--relative-to", help="Base path to preserve directory structure")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing translations")
     parser.add_argument("--api-key", help="Gemini API key (falls back to GEMINI_API_KEY env var)")
+    parser.add_argument("--timeout", type=float, help="Request timeout in seconds")
     return parser.parse_args()
 
 
@@ -52,6 +58,8 @@ def main() -> None:
         cfg = replace(cfg, model=args.model)
     if args.language:
         cfg = replace(cfg, target_language=args.language)
+    if args.timeout:
+        cfg = replace(cfg, timeout=args.timeout)
 
     patterns = args.input or [cfg.input_glob]
     files = _collect_files(patterns)
