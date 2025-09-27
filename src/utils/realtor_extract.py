@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.parse
+import urllib.request
+import http.cookiejar
+from pathlib import Path
 from typing import Any, Sequence
 
 from bs4 import BeautifulSoup
+
+from ..settings import load_default_headers
 
 
 def extract_article_content(html: str, base_url: str) -> list[dict[str, Any]]:
@@ -226,3 +232,75 @@ def _strip_html(text: str) -> str:
         return ""
     soup = BeautifulSoup(text, "html.parser")
     return soup.get_text(" ", strip=True)
+
+
+def download_images(
+    image_entries: Sequence[dict[str, Any]],
+    *,
+    cookie_jar_path: str | os.PathLike[str],
+    dest_dir: os.PathLike[str],
+    timeout: float = 15.0,
+) -> list[dict[str, Any]]:
+    jar = http.cookiejar.MozillaCookieJar(str(cookie_jar_path))
+    try:
+        jar.load(ignore_discard=True, ignore_expires=True)
+    except (FileNotFoundError, http.cookiejar.LoadError, OSError):
+        pass
+
+    dest_path = Path(dest_dir)
+    dest_path.mkdir(parents=True, exist_ok=True)
+
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    base_headers = load_default_headers()
+
+    saved_by_url: dict[str, Path] = {}
+    results: list[dict[str, Any]] = []
+    counter = 0
+
+    for entry in image_entries:
+        try:
+            sequence = int(entry.get("sequence", 0))
+        except (TypeError, ValueError):
+            sequence = 0
+        url = str(entry.get("url") or "").strip()
+        if not url or sequence <= 0:
+            results.append({"sequence": sequence, "url": url, "path": None})
+            continue
+        if url in saved_by_url:
+            results.append({"sequence": sequence, "url": url, "path": saved_by_url[url]})
+            continue
+
+        headers = base_headers.copy()
+        jar_cookie = _cookie_header_from_jar(jar, url)
+        if jar_cookie:
+            headers["Cookie"] = jar_cookie
+
+        request = urllib.request.Request(url=url, headers=headers)
+        counter += 1
+        filename = dest_path / f"image_{counter:03d}{_extension_from_url(url)}"
+
+        with opener.open(request, timeout=timeout) as resp:
+            data = resp.read()
+        filename.write_bytes(data)
+
+        saved_by_url[url] = filename
+        results.append({"sequence": sequence, "url": url, "path": filename})
+
+    try:
+        jar.save(ignore_discard=True, ignore_expires=True)
+    except OSError:
+        pass
+
+    return results
+
+
+def _extension_from_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    _, ext = os.path.splitext(parsed.path)
+    return ext if ext else ".bin"
+
+
+def _cookie_header_from_jar(jar: http.cookiejar.CookieJar, url: str) -> str:
+    request = urllib.request.Request(url)
+    jar.add_cookie_header(request)
+    return request.get_header("Cookie", "")

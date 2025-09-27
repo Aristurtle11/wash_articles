@@ -64,6 +64,10 @@ class HttpClient:
         self._opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self._cookie_jar))
 
     @property
+    def cookie_path(self) -> Path:
+        return self._cookie_path
+
+    @property
     def default_headers(self) -> dict[str, str]:
         return dict(self._default_headers)
 
