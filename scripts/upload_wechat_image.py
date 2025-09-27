@@ -1,4 +1,4 @@
-"""Upload channel image_001.jpg as permanent WeChat material."""
+"""Upload all `image_*` assets for a channel as permanent WeChat materials."""
 
 from __future__ import annotations
 
@@ -41,7 +41,11 @@ def locate_images(raw_root: Path, channel: str) -> list[Path]:
     image_dir = raw_root / channel / "images"
     if not image_dir.is_dir():
         raise FileNotFoundError(f"未找到图片目录: {image_dir}")
-    candidates = sorted(p for p in image_dir.iterdir() if p.is_file())
+    candidates = sorted(
+        p
+        for p in image_dir.iterdir()
+        if p.is_file() and p.name.lower().startswith("image_")
+    )
     if not candidates:
         raise FileNotFoundError(f"目录 {image_dir} 中未找到任何图片文件")
     return candidates

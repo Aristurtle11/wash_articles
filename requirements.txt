@@ -12,6 +12,7 @@ httpcore==1.0.9
 httpx==0.28.1
 idna==3.10
 lxml==6.0.2
+markdown==3.7
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pydantic==2.11.9

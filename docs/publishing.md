@@ -9,6 +9,7 @@
 - `scripts/publish_content.py`：命令行入口。
 - `scripts/get_wechat_token.py`：获取并缓存 access_token。
 - `scripts/upload_wechat_image.py`：批量上传 `images/` 目录下的 `image_*.{jpg,png...}` 为永久素材，记录 `media_id` 与 URL。
+- `scripts/publish_wechat_article.py`：一键完成图片上传、占位符替换与草稿创建。
 
 ## 配置要求
 - 通过环境变量提供微信公众号凭证：`export WECHAT_APP_ID=...`、`export WECHAT_APP_SECRET=...`。
