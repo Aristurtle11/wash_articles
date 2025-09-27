@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Iterable, Iterator
+import urllib.parse
+import logging
 
 from bs4 import BeautifulSoup
 
 from ..core.base_spider import BaseSpider
 from ..core.http_client import HttpRequest, HttpResponse
 from ..settings import project_path
+from ..utils.realtor_extract import extract_article_content, render_content_to_text
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class RealtorSpider(BaseSpider):
@@ -17,38 +22,31 @@ class RealtorSpider(BaseSpider):
         yield HttpRequest(url=self.config["start_url"])
 
     def parse(self, response: HttpResponse) -> Iterator[Any]:
-        soup = BeautifulSoup(response.text, "html.parser")
-        body = soup.select_one("article") or soup.select_one("#content")
-        if not body:
+        LOGGER.info("Parsing response from %s (status=%s, body=%d bytes)", response.url, response.status, len(response.body))
+        raw_dir = project_path("data", "raw", self.name)
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        slug = urllib.parse.urlparse(response.url).path.strip("/") or "index"
+        safe_slug = slug.replace("/", "_")
+        html_path = raw_dir / f"{safe_slug}.html"
+        html_path.write_text(response.text, encoding="utf-8")
+        LOGGER.info("Saved HTML to %s", html_path)
+
+        content = extract_article_content(response.text, response.url)
+        if not content:
+            LOGGER.warning("No article content extracted for %s", response.url)
             return
 
-        image_dir = project_path("data", "raw", self.name)
-        image_dir.mkdir(parents=True, exist_ok=True)
+        text_path = raw_dir / f"{safe_slug}_core_paragraphs.txt"
+        text_output = render_content_to_text(content)
+        text_path.write_text(text_output, encoding="utf-8")
+        LOGGER.info("Saved core paragraphs to %s", text_path)
 
-        parts: list[str] = []
-        images: list[dict[str, str]] = []
-        counter = 1
-
-        for element in body.children:
-            if getattr(element, "name", None) == "img":
-                src = element.get("data-src") or element.get("src")
-                if not src:
-                    continue
-                img_id = f"{counter:02d}"
-                filename = image_dir / f"image_{img_id}.jpg"
-                img_resp = self.client.fetch(HttpRequest(url=src))
-                filename.write_bytes(img_resp.body)
-                parts.append(f"{{{{IMAGE {img_id}}}}}")
-                images.append({"id": img_id, "src": src, "path": str(filename.relative_to(project_path()))})
-                counter += 1
-            elif getattr(element, "name", None) in {"p", "h1", "h2", "h3"}:
-                text = element.get_text(strip=True)
-                if text:
-                    parts.append(text)
+        soup = BeautifulSoup(response.text, "html.parser")
 
         yield {
             "source_url": response.url,
             "title": soup.title.string.strip() if soup.title else "",
-            "content_with_placeholders": "\n\n".join(parts),
-            "images": images,
+            "raw_html_path": str(html_path.relative_to(project_path())),
+            "core_paragraphs_path": str(text_path.relative_to(project_path())),
         }
