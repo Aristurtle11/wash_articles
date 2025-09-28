@@ -52,7 +52,20 @@
 
 若遇到 API 限额或网络问题，脚本会给出详细日志，便于重试。
 
-## Step 3：上传微信图文草稿
+## Step 3：AI 排版译文
+
+1. **准备格式化**
+   ```bash
+   python scripts/format_articles.py
+   ```
+   常用参数：
+   - `--input "data/translated/realtor/*.translated.txt"` 指定需要排版的译文。
+   - `--output-dir data/translated/realtor` 改变 HTML 输出位置。
+   - `--overwrite` 允许覆盖已有 `.formatted.html`。
+2. **结果**
+   - 每个译文旁会生成对应的 `*.formatted.html`，内含简单 CSS 与结构化 HTML，但仍保留 `{{[Image N]}}` 占位符，方便后续替换。
+
+## Step 4：上传微信图文草稿
 
 1. **验证凭证**
    ```bash
@@ -66,8 +79,8 @@
      --title "示例标题" \
      --dry-run          # 先查看预览 JSON（可选）
    ```
-   - 脚本会自动上传 `data/raw/<channel>/images/image_*.{jpg,png}` 为永久素材，并将返回的 `media_id` 与 `url` 写入 Markdown。
-   - 译文中的 `{{[Image N]}}` 会被替换为 Markdown 图片语法，再转换为 HTML 提交草稿。
+   - 脚本会自动上传 `data/raw/<channel>/images/image_*.{jpg,png}` 为永久素材，并将返回的 `media_id` 与 `url` 注入译文。
+   - 如存在 `.formatted.html`，会以该 HTML 作为稿件主体；否则退回 Markdown→HTML 转换流程。
    - 去掉 `--dry-run` 后会调用微信 `draft/add` 接口，成功时输出草稿 `media_id`。
 3. **命令输出**
    - 每张图片对应的 `media_id` 与 URL

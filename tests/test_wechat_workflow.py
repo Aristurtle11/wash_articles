@@ -84,3 +84,23 @@ def test_publish_dry_run_skips_network_and_preserves_file(tmp_path: Path) -> Non
     assert article_path.read_text(encoding="utf-8") == "{{[Image 1]}}"
     article = result.payload["articles"][0]
     assert article["thumb_media_id"].startswith("<dry-run:")
+
+
+def test_build_html_content_prefers_formatted_file(tmp_path: Path) -> None:
+    article_path = tmp_path / "article.translated.txt"
+    article_path.write_text("正文段落\n", encoding="utf-8")
+    formatted_path = article_path.with_suffix(".formatted.html")
+    formatted_path.write_text(
+        "<html><body><article>{{[Image 1]}}<p>正文段落</p></article></body></html>",
+        encoding="utf-8",
+    )
+
+    image_path = tmp_path / "image_001.jpg"
+    image_path.write_bytes(b"")
+    upload = _media_result(image_path, "http://example.com/1.jpg", 1)
+
+    workflow = WeChatArticleWorkflow(StubUploader([upload]), StubDraftClient())
+    html = workflow._build_html_content(article_path, [upload], persist=False)
+
+    assert "http://example.com/1.jpg" in html
+    assert formatted_path.read_text(encoding="utf-8").count("http://example.com/1.jpg") == 0

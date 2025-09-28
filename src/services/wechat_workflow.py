@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,12 +68,11 @@ class WeChatArticleWorkflow:
         if not uploads:
             raise RuntimeError("未找到需要上传的图片文件")
 
-        markdown_content = self._prepare_markdown(
+        html_content = self._build_html_content(
             metadata.article_path,
             uploads,
             persist=not dry_run,
         )
-        html_content = self._markdown_to_html(markdown_content)
 
         payload = self._build_payload(metadata, uploads, html_content)
 
@@ -119,6 +117,30 @@ class WeChatArticleWorkflow:
                 order=order,
                 media_id=f"<dry-run:{path.stem}>",
             )
+
+    def _build_html_content(
+        self,
+        article_path: Path,
+        uploads: Sequence[MediaUploadResult],
+        *,
+        persist: bool,
+    ) -> str:
+        formatted_path = article_path.with_suffix(".formatted.html")
+        uploads_sorted = sorted(uploads, key=lambda item: item.order)
+
+        if formatted_path.exists():
+            html = formatted_path.read_text(encoding="utf-8")
+            updated = self._inject_images_html(html, uploads_sorted)
+            if persist and updated != html:
+                formatted_path.write_text(updated, encoding="utf-8")
+            return updated
+
+        markdown_content = self._prepare_markdown(
+            article_path,
+            uploads_sorted,
+            persist=persist,
+        )
+        return self._markdown_to_html(markdown_content)
 
     def _prepare_markdown(
         self,
@@ -199,6 +221,45 @@ class WeChatArticleWorkflow:
         for item in uploads_sorted[start_index:]:
             extra_lines.append(f"![Image {item.order}]({item.remote_url})")
         return text.rstrip() + "\n\n" + "\n".join(extra_lines) + "\n"
+
+    def _inject_images_html(
+        self,
+        html: str,
+        uploads_sorted: Sequence[MediaUploadResult],
+    ) -> str:
+        matches = list(_PLACEHOLDER_PATTERN.finditer(html))
+
+        def replacement(match: re.Match[str]) -> str:
+            index = int(match.group(1))
+            try:
+                upload = uploads_sorted[index - 1]
+            except IndexError as exc:
+                raise RuntimeError(
+                    f"占位符索引 {index} 超出上传图片数量 {len(uploads_sorted)}"
+                ) from exc
+            return self._render_image_block(upload, index)
+
+        updated = _PLACEHOLDER_PATTERN.sub(replacement, html)
+
+        if len(uploads_sorted) > len(matches):
+            extras = uploads_sorted[len(matches) :]
+            extra_blocks = "\n".join(
+                self._render_image_block(item, item.order) for item in extras
+            )
+            insertion = f"\n{extra_blocks}\n"
+            if "</body>" in updated:
+                updated = updated.replace("</body>", f"{insertion}</body>")
+            else:
+                updated = updated.rstrip() + insertion
+        return updated
+
+    def _render_image_block(self, upload: MediaUploadResult, index: int) -> str:
+        alt = f"Image {index}"
+        return (
+            f'<figure class="article-image" data-index="{index}">'
+            f"<img src=\"{upload.remote_url}\" alt=\"{alt}\" />"
+            "</figure>"
+        )
 
     def _markdown_to_html(self, markdown_text: str) -> str:
         html = markdown(markdown_text, extensions=["extra"])  # type: ignore[arg-type]

@@ -41,6 +41,7 @@ class AppConfig:
     http: HttpSettings
     paths: PathSettings
     ai: "AISettings"
+    formatting: "FormattingSettings"
     spiders: dict[str, dict[str, str]]
 
 
@@ -51,6 +52,16 @@ class AISettings:
     output_dir: Path
     input_glob: str
     target_language: str
+    timeout: float
+    thinking_budget: int | None
+
+
+@dataclass(slots=True)
+class FormattingSettings:
+    model: str
+    prompt_path: Path
+    output_dir: Path
+    input_glob: str
     timeout: float
     thinking_budget: int | None
 
@@ -88,6 +99,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
     paths_section = parser["paths"] if parser.has_section("paths") else {}
     http_section = parser["http"] if parser.has_section("http") else {}
     ai_section = parser["ai"] if parser.has_section("ai") else {}
+    formatting_section = parser["formatting"] if parser.has_section("formatting") else {}
 
     data_dir = _to_path(paths_section.get("data_dir"), fallback=PROJECT_ROOT / "data")
     raw_dir = _to_path(paths_section.get("raw_dir"), fallback=data_dir / "raw")
@@ -127,6 +139,27 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         ),
     )
 
+    formatting_settings = FormattingSettings(
+        model=formatting_section.get("model", ai_settings.model),
+        prompt_path=_to_path(
+            formatting_section.get("prompt_path"),
+            fallback=PROJECT_ROOT / "prompts" / "formatting_prompt.txt",
+        ),
+        output_dir=_to_path(
+            formatting_section.get("output_dir"),
+            fallback=ai_settings.output_dir,
+        ),
+        input_glob=formatting_section.get(
+            "input_glob", "data/translated/**/*.translated.txt"
+        ),
+        timeout=float(formatting_section.get("timeout", ai_settings.timeout)),
+        thinking_budget=(
+            int(formatting_section.get("thinking_budget"))
+            if formatting_section.get("thinking_budget") not in (None, "")
+            else ai_settings.thinking_budget
+        ),
+    )
+
     spiders: dict[str, dict[str, str]] = {}
     for section in parser.sections():
         if section.lower().startswith("spider:"):
@@ -145,6 +178,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
             cookie_jar=cookie_path,
         ),
         ai=ai_settings,
+        formatting=formatting_settings,
         spiders=spiders,
     )
     return config

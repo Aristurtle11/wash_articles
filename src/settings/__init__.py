@@ -3,6 +3,7 @@
 from .loader import (
     AppConfig,
     AISettings,
+    FormattingSettings,
     HttpSettings,
     PathSettings,
     load_config,
@@ -14,6 +15,7 @@ from .loader import (
 __all__ = [
     "AppConfig",
     "AISettings",
+    "FormattingSettings",
     "HttpSettings",
     "PathSettings",
     "load_config",

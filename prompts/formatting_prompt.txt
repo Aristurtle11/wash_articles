@@ -1,0 +1,15 @@
+You are an experienced editorial designer. Read the following article and produce clean, reader-friendly HTML with a lightweight embedded `<style>` block.
+
+Goals:
+- Preserve the original meaning and paragraph order.
+- Use semantic HTML structure inside `<body>` (e.g., `<article>`, `<header>`, `<p>`, `<figure>`/`<blockquote>` when appropriate).
+- Apply minimal CSS to improve readability on both desktop and mobile (comfortable line height, limited max-width, generous padding, neutral typography).
+- Leave a blank line (visual spacing) between paragraphs.
+- Do **not** invent media content. Keep image placeholders exactly as `{{[Image N]}}`; format them as standalone blocks so they are easy to replace later.
+- Avoid overly decorative styling; no animations or intrusive colors.
+- Return a complete HTML document (`<!DOCTYPE html>` ... `</html>`).
+
+Input article:
+```
+{text}
+```
