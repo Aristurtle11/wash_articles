@@ -38,8 +38,11 @@ class WeChatDraftClient:
         allow_retry: bool,
     ) -> dict[str, Any]:
         url = f"{self._DRAFT_URL}?access_token={token.value}"
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json; charset=utf-8"}
+
         try:
-            response = requests.post(url, json=payload, timeout=self._timeout)
+            response = requests.post(url, data=body, headers=headers, timeout=self._timeout)
             response.raise_for_status()
         except requests.RequestException as exc:
             raise WeChatApiError(
