@@ -71,7 +71,7 @@ class WeChatArticleWorkflow:
         markdown_content = self._replace_placeholders(metadata.article_path, uploads)
         html_content = self._markdown_to_html(markdown_content)
 
-        payload = self._build_payload(metadata, uploads, markdown_content, html_content)
+        payload = self._build_payload(metadata, uploads, html_content)
 
         if dry_run:
             response = {"media_id": "<dry-run>", "payload_preview": payload}
@@ -138,7 +138,6 @@ class WeChatArticleWorkflow:
         self,
         metadata: ArticleMetadata,
         uploads: Sequence[MediaUploadResult],
-        markdown_content: str,
         content_html: str,
     ) -> dict[str, object]:
         thumbnail_id = uploads[0].media_id
@@ -155,7 +154,7 @@ class WeChatArticleWorkflow:
         }
         if metadata.author:
             article["author"] = metadata.author
-        digest = metadata.digest or self._build_digest(markdown_content)
+        digest = self._prepare_digest(metadata.digest)
         if digest:
             article["digest"] = digest
         if metadata.source_url:
@@ -163,9 +162,17 @@ class WeChatArticleWorkflow:
 
         return {"articles": [article]}
 
-    def _build_digest(self, markdown_content: str) -> str:
-        text = _PLACEHOLDER_PATTERN.sub("", markdown_content)
-        # Strip Markdown image syntax while keeping alt text.
-        text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
-        cleaned = " ".join(line.strip() for line in text.splitlines() if line.strip())
-        return cleaned[:120]
+    def _prepare_digest(self, digest: str | None) -> str | None:
+        if not digest:
+            return None
+        return self._truncate_utf8(digest, max_bytes=256)
+
+    def _truncate_utf8(self, text: str, *, max_bytes: int) -> str:
+        encoded = text.encode("utf-8")
+        if len(encoded) <= max_bytes:
+            return text
+        truncated = encoded[:max_bytes]
+        # Ensure no partial multibyte character at the end.
+        while truncated and (truncated[-1] & 0xC0) == 0x80:
+            truncated = truncated[:-1]
+        return truncated.decode("utf-8", errors="ignore")

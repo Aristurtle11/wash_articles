@@ -18,6 +18,16 @@ class WeChatApiError(RuntimeError):
         super().__init__(message)
         self.details = dict(details or {})
 
+    def __str__(self) -> str:
+        base = super().__str__()
+        if not self.details:
+            return base
+        try:
+            detail_repr = json.dumps(self.details, ensure_ascii=False)
+        except TypeError:
+            detail_repr = str(self.details)
+        return f"{base} | 详情: {detail_repr}"
+
 
 @dataclass(slots=True)
 class AccessTokenResponse:
