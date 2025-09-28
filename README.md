@@ -1,121 +1,102 @@
 # 洗稿机器
 
-本工程专注洗稿
+本仓库提供一条从采集原始文章、提取资源，到使用 Gemini 翻译，再将图文素材推送到微信公众号草稿箱的自动化流水线。下文按时间顺序列出需要准备的环境、核心命令以及数据产物位置。
 
-## 复制开发环境
+## 环境准备
 
-激活python虚拟环境
+1. **基础依赖**
+   - Python 3.11+
+   - 推荐使用虚拟环境：`python -m venv .venv && source .venv/bin/activate`
+   - 安装项目依赖：
+     ```bash
+     pip install -r requirements.txt
+     ```
+2. **外部凭证**
+   - Gemini：`export GEMINI_API_KEY="<你的API Key>"`
+   - 微信公众号：`export WECHAT_APP_ID="..."` 与 `export WECHAT_APP_SECRET="..."`
 
-执行：
+## Step 1：抓取文章与图片
 
-```shell
-pip install -r requirements.txt
-```
-
-## 使用方法
-
-以下步骤假设你已经在项目根目录 `/home/user/wash_articles` 下，并且完成了依赖安装。
-
-### 1. 第一次跑之前要做的准备
-
-1. **复制默认配置：** 项目已经提供了 `config.ini`，直接使用即可。如果你想放在别的路径，可以复制一份，然后在运行命令时用 `--config` 指定新路径。
-2. **理解目录结构：** 配置里的 `data_dir`、`processed_dir` 等路径决定了爬虫输出。默认会在 `data/processed` 里写入 `*.jsonl` 数据，在 `data/raw` 里存放下载的原始资源（例如图片），`data/logs` 里放日志，`data/state` 里放 cookies。
-3. **准备默认请求头（可选）：** 如果目标网站需要特定请求头或 cookies，可以编辑 `src/settings/default_headers.template.json`，然后运行任意爬虫；系统会自动生成 `src/settings/default_headers.json`。也可以执行 `python fetch_cookies.py <目标URL>` 来用真实请求刷新 cookies。
-
-### 2. 修改配置文件 `config.ini`
-
-1. **选择默认爬虫：** 在 `[app]` 段落里把 `default_spider` 改成你想自动运行的名字，例如 `realtor`。
-2. **调整保存位置：** 如果不希望把数据放在项目目录里，可以把 `[paths]` 中的各项替换成绝对路径。
-3. **设置网络参数：** `[http]` 段落里的 `timeout`（超时时间，秒）、`min_delay`/`max_delay`（两次请求间的随机间隔，秒）、`max_attempts`（失败重试次数）、`backoff_factor`（指数退避倍率）都能直接修改。
-4. **为每个爬虫准备专属配置：** 每个 `[spider:名字]` 段落都会作为字典传入爬虫实例，常见键是 `start_url`。例如：
-
-   ```ini
-   [spider:example]
-   start_url = https://example.com/
-
-   [spider:realtor]
-   start_url = https://www.realtor.com/...具体文章链接...
-   ```
-
-### 3. 运行已有爬虫
-
-1. **直接运行默认爬虫：**
-
-   ```shell
-   python main.py
-   ```
-
-   程序会读取 `config.ini`，使用 `[app]` 中 `default_spider` 对应的爬虫。
-
-2. **运行指定爬虫：**
-
-   ```shell
+1. **配置爬虫**（`config.ini`）
+   - `[app] default_spider` 决定默认执行的爬虫，例如 `realtor`。
+   - `[paths]` 控制输出目录，默认生成于 `data/`。
+   - 每个 `[spider:<name>]` 段定义入口 URL 及自定义参数。
+2. **运行爬虫**
+   ```bash
+   python main.py                # 使用默认爬虫
    python main.py --spider realtor
    ```
+3. **产出目录**
+   - 原始文本、图片：`data/raw/<channel>/`
+   - 处理后的 JSONL：`data/processed/<channel>.jsonl`
+   - 日志：`data/logs/`
 
-   如果你把配置放在其他位置，记得加上 `--config`：
+若目标站点需要特殊 Cookie，可通过 `scripts/fetch_cookies.py <URL>` 预先刷新 `data/state/cookies.txt`。
 
-   ```shell
-   python main.py --spider realtor --config /path/to/other_config.ini
+## Step 2：使用 AI 翻译文章
+
+1. **确认配置**
+   - `config.ini` 的 `[ai]` 段定义默认模型、Prompt、输出目录与输入文件的 glob 模式。
+   - Prompt 模板位于 `prompts/translation_prompt.txt`，可按需修改语气与约束。
+2. **执行翻译**
+   ```bash
+   python scripts/translate_texts.py
    ```
+   常用参数：
+   - `--input "data/raw/realtor/*_core_paragraphs.txt"` 指定翻译源。
+   - `--output-dir data/translated/realtor` 调整译文目录。
+   - `--overwrite` 允许覆盖旧译文。
+3. **产出目录**
+   - 译文默认写入 `data/translated/<channel>/...*.translated.txt`
+   - 输入文件与译文保持相对目录一致，便于后续匹配图片资源。
 
-3. **查看输出在哪：** 爬虫结束后，处理过的数据会写入 `data/processed/<爬虫名>.jsonl`，原始资源会出现在 `data/raw/<爬虫名>/`，日志在 `data/logs/wash.log`。
+若遇到 API 限额或网络问题，脚本会给出详细日志，便于重试。
 
-### 4. 新增一个爬虫的流程
+## Step 3：上传微信图文草稿
 
-1. **创建爬虫文件：** 在 `src/spiders/` 里新增 `my_site_spider.py`，内容可以从 `example_spider.py` 拷贝后修改，最小示例如下：
-
-   ```python
-   from __future__ import annotations
-   from typing import Iterable, Iterator
-
-   from bs4 import BeautifulSoup
-   from src.core.base_spider import BaseSpider
-   from src.core.http_client import HttpRequest, HttpResponse
-
-
-   class MySiteSpider(BaseSpider):
-       name = "my_site"
-
-       def start_requests(self) -> Iterable[HttpRequest]:
-           yield HttpRequest(url=self.config["start_url"])
-
-       def parse(self, response: HttpResponse) -> Iterator[dict]:
-           soup = BeautifulSoup(response.text, "html.parser")
-           title = soup.title.string.strip() if soup.title else ""
-           yield {"source_url": response.url, "title": title}
+1. **验证凭证**
+   ```bash
+   python scripts/get_wechat_token.py --token-cache data/state/wechat_token.json
    ```
-
-   记得根据目标站点实际结构，补充你需要的解析逻辑。
-
-2. **注册新爬虫：** 编辑 `src/spiders/__init__.py`：
-
-   - 在文件顶部新增 `from .my_site_spider import MySiteSpider`
-   - 在 `SPIDER_REGISTRY` 字典里加入 `MySiteSpider.name: MySiteSpider`
-
-3. **为新爬虫写配置：** 在 `config.ini` 里新增：
-
-   ```ini
-   [spider:my_site]
-   start_url = https://目标站点的入口地址
+   - `--force-refresh` 可忽略缓存重新获取。
+2. **上传并生成草稿**
+   ```bash
+   python scripts/publish_wechat_article.py \
+     --channel realtor \
+     --title "示例标题" \
+     --dry-run          # 先查看预览 JSON（可选）
    ```
+   - 脚本会自动上传 `data/raw/<channel>/images/image_*.{jpg,png}` 为永久素材，并将返回的 `media_id` 与 `url` 写入 Markdown。
+   - 译文中的 `{{[Image N]}}` 会被替换为 Markdown 图片语法，再转换为 HTML 提交草稿。
+   - 去掉 `--dry-run` 后会调用微信 `draft/add` 接口，成功时输出草稿 `media_id`。
+3. **命令输出**
+   - 每张图片对应的 `media_id` 与 URL
+   - 提交给微信的 JSON 结构，便于审查或复用
 
-4. **运行测试：**
-
-   ```shell
-   python main.py --spider my_site
-   ```
-
-   如果代码报错，可以先用 `print()` 或日志定位问题；常见原因是 HTML 结构和预期不同。
-
-### 5. 进阶：更新 cookies（可选）
-
-有些网站需要经常刷新 cookies。可以在登录浏览器后复制目标页面地址，执行：
-
-```shell
-python fetch_cookies.py "https://目标站点的页面"
+如仅需单独上传素材，可使用：
+```bash
+python scripts/upload_wechat_image.py --channel realtor
 ```
 
-脚本会用当前配置请求该页面，把新的 cookies 写入 `data/state/cookies.txt` 并更新默认请求头。
+## 常用辅助脚本
 
-按照以上步骤操作，哪怕是第一次接触爬虫的初级程序员，也可以顺利配置并运行本项目。
+- `scripts/clean_project.sh`：清理缓存与数据产物。
+- `scripts/publish_content.py`：后续可扩展为多平台发布入口。
+- `scripts/translate_texts.py --help`、`scripts/publish_wechat_article.py --help` 获取详尽参数说明。
+
+## 目录速览
+
+```
+├─ config.ini                 # 统一配置入口（爬虫、路径、AI 参数）
+├─ data/                      # 爬取数据、译文、状态缓存
+├─ prompts/                   # 翻译 Prompt 模板
+├─ scripts/                   # 抓取后处理、翻译、发布脚本
+├─ src/
+│  ├─ core/                   # HTTP 客户端、爬虫基类
+│  ├─ platforms/wechat/       # 微信凭证、素材上传、草稿客户端
+│  ├─ services/wechat_workflow.py  # 图文发布 orchestrator
+│  └─ ...
+└─ tests/                     # 针对发布工作流的示例测试
+```
+
+按照以上步骤即可完成“抓取 → 翻译 → 草稿上传”的整条流水线。遇到问题时，可查看 `data/logs/` 下的日志或运行脚本的 `--help` 获取更多调试信息。

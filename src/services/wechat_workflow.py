@@ -6,7 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Iterable, Sequence
 
 try:
     from markdown import markdown
@@ -20,6 +20,7 @@ from src.platforms.wechat import WeChatApiError, WeChatDraftClient, WeChatMediaU
 
 
 _PLACEHOLDER_PATTERN = re.compile(r"{{\s*\[Image\s+(\d+)\]\s*}}", re.IGNORECASE)
+_MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[Image\s+(\d+)\]\([^\)]+\)", re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -64,11 +65,15 @@ class WeChatArticleWorkflow:
         *,
         dry_run: bool = False,
     ) -> ArticleResult:
-        uploads = list(self._media_uploader.upload_batch(bundle))
+        uploads = self._collect_uploads(bundle, dry_run=dry_run)
         if not uploads:
             raise RuntimeError("未找到需要上传的图片文件")
 
-        markdown_content = self._replace_placeholders(metadata.article_path, uploads)
+        markdown_content = self._prepare_markdown(
+            metadata.article_path,
+            uploads,
+            persist=not dry_run,
+        )
         html_content = self._markdown_to_html(markdown_content)
 
         payload = self._build_payload(metadata, uploads, html_content)
@@ -92,20 +97,81 @@ class WeChatArticleWorkflow:
             markdown_path=metadata.article_path,
         )
 
-    def _replace_placeholders(
+    def _collect_uploads(
+        self,
+        bundle: ContentBundle,
+        *,
+        dry_run: bool,
+    ) -> list[MediaUploadResult]:
+        if dry_run:
+            return list(self._simulate_uploads(bundle))
+        return list(self._media_uploader.upload_batch(bundle))
+
+    def _simulate_uploads(self, bundle: ContentBundle) -> Iterable[MediaUploadResult]:
+        images = sorted(
+            (path for path in bundle.images if path.is_file()),
+            key=lambda path: path.name,
+        )
+        for order, path in enumerate(images, start=1):
+            yield MediaUploadResult(
+                local_path=path,
+                remote_url=path.as_uri(),
+                order=order,
+                media_id=f"<dry-run:{path.stem}>",
+            )
+
+    def _prepare_markdown(
         self,
         article_path: Path,
         uploads: Sequence[MediaUploadResult],
+        *,
+        persist: bool,
     ) -> str:
         text = article_path.read_text(encoding="utf-8")
-        matches = list(_PLACEHOLDER_PATTERN.finditer(text))
         uploads_sorted = sorted(uploads, key=lambda item: item.order)
 
-        if len(matches) > len(uploads_sorted):
-            raise RuntimeError(
-                f"文章中的图片占位符数量({len(matches)})超过上传的图片数量({len(uploads_sorted)})"
-            )
+        updated, changed = self._inject_images(text, uploads_sorted)
 
+        if persist and changed:
+            article_path.write_text(updated, encoding="utf-8")
+        return updated
+
+    def _inject_images(
+        self,
+        text: str,
+        uploads_sorted: Sequence[MediaUploadResult],
+    ) -> tuple[str, bool]:
+        matches = list(_PLACEHOLDER_PATTERN.finditer(text))
+
+        if matches:
+            updated = self._replace_placeholder_matches(text, matches, uploads_sorted)
+            updated = self._append_extra_images(updated, uploads_sorted, start_index=len(matches))
+            return updated, updated != text
+
+        # No placeholders remain; update existing markdown image tags.
+        def markdown_replacement(match: re.Match[str]) -> str:
+            index = int(match.group(1))
+            try:
+                upload = uploads_sorted[index - 1]
+            except IndexError:
+                return match.group(0)
+            alt = f"Image {index}"
+            return f"![{alt}]({upload.remote_url})"
+
+        updated, count = _MARKDOWN_IMAGE_PATTERN.subn(markdown_replacement, text)
+        if count:
+            return updated, updated != text
+
+        # Nothing to replace; optionally append images once.
+        updated = self._append_extra_images(text, uploads_sorted, start_index=0)
+        return updated, updated != text
+
+    def _replace_placeholder_matches(
+        self,
+        text: str,
+        matches: Sequence[re.Match[str]],
+        uploads_sorted: Sequence[MediaUploadResult],
+    ) -> str:
         def replacement(match: re.Match[str]) -> str:
             index = int(match.group(1))
             try:
@@ -117,18 +183,22 @@ class WeChatArticleWorkflow:
             alt = f"Image {index}"
             return f"![{alt}]({upload.remote_url})"
 
-        updated = _PLACEHOLDER_PATTERN.sub(replacement, text)
+        return _PLACEHOLDER_PATTERN.sub(replacement, text)
 
-        # Append any extra images that were uploaded but not referenced.
-        if len(uploads_sorted) > len(matches):
-            extras = uploads_sorted[len(matches) :]
-            extra_lines = [""]
-            for item in extras:
-                extra_lines.append(f"![Image {item.order}]({item.remote_url})")
-            updated = updated.rstrip() + "\n\n" + "\n".join(extra_lines) + "\n"
+    def _append_extra_images(
+        self,
+        text: str,
+        uploads_sorted: Sequence[MediaUploadResult],
+        *,
+        start_index: int,
+    ) -> str:
+        if start_index >= len(uploads_sorted):
+            return text
 
-        article_path.write_text(updated, encoding="utf-8")
-        return updated
+        extra_lines = [""]
+        for item in uploads_sorted[start_index:]:
+            extra_lines.append(f"![Image {item.order}]({item.remote_url})")
+        return text.rstrip() + "\n\n" + "\n".join(extra_lines) + "\n"
 
     def _markdown_to_html(self, markdown_text: str) -> str:
         html = markdown(markdown_text, extensions=["extra"])  # type: ignore[arg-type]
