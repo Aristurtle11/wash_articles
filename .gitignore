@@ -5,3 +5,4 @@ default_headers.json
 data/
 asset
 .vscode
+.pytest_cache
