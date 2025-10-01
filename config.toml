@@ -20,7 +20,7 @@ default_channel = "realtor"
 [pipeline.stages.translate]
 kind = "translation"
 model = "gemini-2.5-flash"
-prompt_path = "prompts/translation_prompt.txt"
+prompt_path = "prompts/translate"
 output_dir = "data/{channel}/translated"
 input_glob = "data/{channel}/raw/**/*.txt"
 target_language = "zh-CN"
@@ -30,7 +30,7 @@ thinking_budget = null
 [pipeline.stages.format]
 kind = "formatting"
 model = "gemini-2.5-flash"
-prompt_path = "prompts/formatting_prompt.txt"
+prompt_path = "prompts/format"
 output_dir = "data/{channel}/formatted"
 input_glob = "data/{channel}/translated/**/*.translated.txt"
 timeout = 30
@@ -39,7 +39,7 @@ thinking_budget = null
 [pipeline.stages.title]
 kind = "title"
 model = "gemini-2.5-flash"
-prompt_path = "prompts/title_prompt.txt"
+prompt_path = "prompts/title"
 output_dir = "data/{channel}/titles"
 input_glob = "data/{channel}/translated/**/*.translated.txt"
 timeout = 20

@@ -20,9 +20,9 @@ DEFAULT_HEADERS_PATH = Path(__file__).with_name("default_headers.json")
 DEFAULT_HEADERS_TEMPLATE_PATH = Path(__file__).with_name("default_headers.template.json")
 
 _STAGE_FALLBACK_PROMPTS = {
-    "translate": PROJECT_ROOT / "prompts" / "translation_prompt.txt",
-    "format": PROJECT_ROOT / "prompts" / "formatting_prompt.txt",
-    "title": PROJECT_ROOT / "prompts" / "title_prompt.txt",
+    "translate": PROJECT_ROOT / "prompts" / "translate",
+    "format": PROJECT_ROOT / "prompts" / "format",
+    "title": PROJECT_ROOT / "prompts" / "title",
 }
 
 _STAGE_FALLBACK_OUTPUT_DIRS = {

@@ -24,9 +24,9 @@ class TitleConfig(BaseAIConfig):
         app_config = load_config()
         stage = app_config.title_for(channel) if channel is not None else app_config.title
 
-        prompt_source = stage.prompt_path or stage.prompt_fallback or (
-            app_config.paths.data_dir / "prompts" / "title_prompt.txt"
-        )
+        prompt_source = stage.prompt_path or stage.prompt_fallback
+        if prompt_source is None:
+            prompt_source = Path(__file__).resolve().parents[2] / "prompts" / "title"
         output_source = stage.output_dir or stage.output_dir_fallback or app_config.paths.titles_for(channel)
         input_glob = stage.input_glob or str(app_config.paths.translated_for(channel) / "**/*.translated.txt")
         timeout = stage.timeout or 30
@@ -80,7 +80,7 @@ class TitleGenerator(BaseAIGenerator):
         api_key: str | None = None,
     ) -> "TitleGenerator":
         cfg = config or TitleConfig.from_app_config()
-        prompt = cfg.prompt_path.read_text(encoding="utf-8")
+        prompt = BaseAIGenerator.load_prompt_text(cfg.prompt_path)
 
         client = BaseAIGenerator.create_client(api_key=api_key)
         cfg.output_dir.mkdir(parents=True, exist_ok=True)

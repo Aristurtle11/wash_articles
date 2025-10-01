@@ -57,6 +57,21 @@ class BaseAIGenerator:
         self._logger = logger or LOGGER
 
     @staticmethod
+    def load_prompt_text(prompt_path: Path) -> str:
+        """Load a prompt from a file or concatenate all .txt files in a directory."""
+        if prompt_path.is_dir():
+            parts: list[str] = []
+            for file in sorted(prompt_path.glob("*.txt")):
+                content = file.read_text(encoding="utf-8").strip()
+                if content:
+                    parts.append(content)
+            if not parts:
+                raise RuntimeError(f"No prompt files found in {prompt_path}")
+            return "\n\n".join(parts)
+        return prompt_path.read_text(encoding="utf-8")
+
+
+    @staticmethod
     def create_client(api_key: str | None = None) -> genai.Client:
         resolved_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not resolved_key:

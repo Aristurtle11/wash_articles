@@ -17,7 +17,7 @@
      [pipeline.stages.translate]
      kind = "translation"
      model = "gemini-2.5-flash"
-     prompt_path = "prompts/translation_prompt.txt"
+     prompt_path = "prompts/translate"
      output_dir = "data/{channel}/translated"
      input_glob = "data/{channel}/raw/**/*.txt"
      target_language = "zh-CN"
@@ -27,7 +27,7 @@
    - 可在此段落调整模型、Prompt、输出目录或目标语言。
 
 3. **Prompt 模版**
-   - 项目在 `prompts/translation_prompt.txt` 中预置了通用翻译模板，包含 `{language}` 与 `{text}` 占位符。你可以根据需要调整翻译风格或规则。
+   - 项目在 `prompts/translate/` 中预置了通用翻译模板，包含 `{language}` 与 `{text}` 占位符。你可以根据需要调整翻译风格或规则。目录下的多个 `.txt` 文件会按文件名排序后拼接为最终 Prompt。
 
 ## 运行翻译脚本
 

@@ -38,7 +38,7 @@
 
 1. **确认配置**
    - `config.toml` 的 `[pipeline.stages.translate]` 段集中配置翻译模型、Prompt、输出目录与输入文件的 glob 模式。
-   - Prompt 模板位于 `prompts/translation_prompt.txt`，可按需修改语气与约束。
+   - Prompt 模板位于 `prompts/translate/` 目录，可按需增删 `.txt` 文件调整语气与约束。
 2. **执行翻译**
    ```bash
    python scripts/translate_texts.py
