@@ -17,6 +17,7 @@ from ..platforms.wechat import (
     WeChatDraftClient,
     WeChatMediaUploader,
 )
+from ..services.wechat_components import ContentBuilder, PayloadBuilder
 from ..services.wechat_workflow import ArticleMetadata, WeChatArticleWorkflow
 from ..settings import AppConfig, load_config
 from ..utils.logging import get_logger
@@ -200,7 +201,15 @@ def _run_publish(context: PipelineContext) -> None:
     credential_store = WeChatCredentialStore(token_cache_path=token_path, api_client=api_client)
     media_uploader = WeChatMediaUploader(credential_store)
     draft_client = WeChatDraftClient(credential_store)
-    workflow = WeChatArticleWorkflow(media_uploader, draft_client)
+    
+    content_builder = ContentBuilder()
+    payload_builder = PayloadBuilder()
+    workflow = WeChatArticleWorkflow(
+        media_uploader,
+        draft_client,
+        content_builder,
+        payload_builder,
+    )
 
     bundle = ContentBundle(channel=context.channel, article_path=article_path, images=images)
 

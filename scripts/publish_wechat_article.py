@@ -21,6 +21,7 @@ from src.platforms.wechat import (
     WeChatDraftClient,
     WeChatMediaUploader,
 )
+from src.services.wechat_components import ContentBuilder, PayloadBuilder
 from src.services.wechat_workflow import ArticleMetadata, WeChatArticleWorkflow
 
 
@@ -162,7 +163,15 @@ def main() -> None:
     credential_store = WeChatCredentialStore(token_cache_path=args.token_cache, api_client=api_client)
     media_uploader = WeChatMediaUploader(credential_store)
     draft_client = WeChatDraftClient(credential_store)
-    workflow = WeChatArticleWorkflow(media_uploader, draft_client)
+
+    content_builder = ContentBuilder()
+    payload_builder = PayloadBuilder()
+    workflow = WeChatArticleWorkflow(
+        media_uploader,
+        draft_client,
+        content_builder,
+        payload_builder,
+    )
 
     bundle = ContentBundle(channel=channel, article_path=article_path, images=images)
 
