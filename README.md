@@ -44,7 +44,7 @@
    python scripts/translate_texts.py
    ```
    常用参数：
-   - `--input "data/realtor/raw/*_core_paragraphs.txt"` 指定翻译源。
+   - `--channel realtor` 指定逻辑频道；`--input "data/realtor/raw/*_core_paragraphs.txt"` 可进一步筛选文件。
    - `--output-dir data/realtor/translated` 调整译文目录。
    - `--overwrite` 允许覆盖旧译文。
 3. **产出目录**
@@ -60,7 +60,7 @@
    python scripts/format_articles.py
    ```
    常用参数：
-   - `--input "data/realtor/translated/*.translated.txt"` 指定需要排版的译文。
+   - `--channel realtor` 指定频道；`--input "data/realtor/translated/*.translated.txt"` 指定需要排版的译文。
    - `--output-dir data/realtor/translated` 改变 HTML 输出位置。
    - `--overwrite` 允许覆盖已有 `.formatted.html`。
 2. **结果**

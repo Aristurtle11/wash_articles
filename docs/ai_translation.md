@@ -46,7 +46,7 @@ python scripts/translate_texts.py
 
 - `--input PATTERN [PATTERN ...]`：指定一个或多个 glob 模式，覆盖默认的 `input_glob`。例如：
   ```bash
-  python scripts/translate_texts.py --input "data/realtor/raw/*_core_paragraphs.txt"
+  python scripts/translate_texts.py --channel realtor --input "data/realtor/raw/*_core_paragraphs.txt"
   ```
 - `--prompt PATH`：指定新的 prompt 文件。
 - `--output-dir DIR`：修改译文输出目录。
@@ -59,6 +59,7 @@ python scripts/translate_texts.py
 示例：
 ```bash
 python scripts/translate_texts.py \
+  --channel realtor \
   --input "data/realtor/raw/*_core_paragraphs.txt" \
   --output-dir data/realtor/translated \
   --language zh-CN \

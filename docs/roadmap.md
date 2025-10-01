@@ -4,7 +4,7 @@
 
 - [x] 统一配置：迁移 `config.ini` 至结构化配置（如 `config.toml`/JSON），集中定义 AI 阶段；提供迁移脚本。
 - [x] 重构数据目录：采用 `data/<channel>/{raw,translated,formatted,titles,artifacts}` 结构，并更新脚本、清理策略。
-- [ ] 抽象 AI 基类：新增 `BaseAIGenerator`，让翻译/排版/标题继承并复用通用逻辑。
+- [x] 抽象 AI 基类：新增 `BaseAIGenerator`，让翻译/排版/标题继承并复用通用逻辑。
 - [ ] 统一 Prompt 管理：按阶段分目录存放模板，支持多模板加载。
 - [ ] 构建流水线编排：新增 `src/app/pipeline.py` 描述 `Fetch→Translate→Format→Title→Publish` 的依赖关系。
 - [ ] CLI 统一入口：提供 `pipeline run/resume/inspect/clean` 命令，输出结构化日志。
