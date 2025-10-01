@@ -25,7 +25,7 @@ output_dir = "data/{channel}/translated"
 input_glob = "data/{channel}/raw/**/*.txt"
 target_language = "zh-CN"
 timeout = 30
-thinking_budget = null
+thinking_budget = 8192
 
 [pipeline.stages.format]
 kind = "formatting"
@@ -34,7 +34,7 @@ prompt_path = "prompts/format"
 output_dir = "data/{channel}/formatted"
 input_glob = "data/{channel}/translated/**/*.translated.txt"
 timeout = 30
-thinking_budget = null
+thinking_budget = 8192
 
 [pipeline.stages.title]
 kind = "title"
@@ -43,7 +43,7 @@ prompt_path = "prompts/title"
 output_dir = "data/{channel}/titles"
 input_glob = "data/{channel}/translated/**/*.translated.txt"
 timeout = 20
-thinking_budget = null
+thinking_budget = 8192
 
 [[spiders]]
 name = "example"

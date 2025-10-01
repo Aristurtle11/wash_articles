@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Iterator
-from pathlib import Path
-import urllib.parse
 import logging
+import urllib.parse
+from pathlib import Path
+from typing import Any, Iterable, Iterator
 
 from bs4 import BeautifulSoup
 
 from ..core.base_spider import BaseSpider
 from ..core.http_client import HttpRequest, HttpResponse
-from ..settings import project_path
+from ..settings import load_config, project_path
 from ..utils.realtor_extract import (
     extract_article_content,
     render_content_to_text,
@@ -23,12 +23,17 @@ LOGGER = logging.getLogger(__name__)
 class RealtorSpider(BaseSpider):
     name = "realtor"
 
+    def __init__(self, client, pipelines=None, *, config=None):
+        super().__init__(client, pipelines, config=config)
+        app_config = load_config()
+        self._raw_root = app_config.paths.raw_for(self.name)
+
     def start_requests(self) -> Iterable[HttpRequest]:
         yield HttpRequest(url=self.config["start_url"])
 
     def parse(self, response: HttpResponse) -> Iterator[Any]:
         LOGGER.info("Parsing response from %s (status=%s, body=%d bytes)", response.url, response.status, len(response.body))
-        raw_dir = project_path("data", "raw", self.name)
+        raw_dir = self._raw_root
         raw_dir.mkdir(parents=True, exist_ok=True)
 
         slug = urllib.parse.urlparse(response.url).path.strip("/") or "index"
