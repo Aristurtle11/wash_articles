@@ -76,7 +76,6 @@
    ```bash
    python scripts/publish_wechat_article.py \
      --channel realtor \
-     --title "示例标题" \
      --dry-run          # 先查看预览 JSON（可选）
    ```
    - 脚本会自动上传 `data/raw/<channel>/images/image_*.{jpg,png}` 为永久素材，并将返回的 `media_id` 与 `url` 注入译文。
