@@ -14,16 +14,16 @@ except ModuleNotFoundError as exc:
     ) from exc
 
 from src.platforms import MediaUploadResult
-from src.services.wechat_workflow import ArticleMetadata
+from src.services.wechat_models import ArticleMetadata
 
 
 _PLACEHOLDER_PATTERN = re.compile(r"{{\s*\[Image\s+(\d+)\]\s*}}", re.IGNORECASE)
 _HTML_PLACEHOLDER_PATTERN = re.compile(
-    r"<p[^>]*>\s*(?:{{\s*\[Image\s+(\d+)\]\s*}}|{{\[IMAGE_(\d+)\]}})\\s*</p>",
+    r"<p[^>]*>\s*(?:{{\s*\[Image\s+(\d+)\]\s*}}|\[\[IMAGE_(\d+)\]\])\s*</p>",
     re.IGNORECASE,
 )
-_BRACKET_PLACEHOLDER_PATTERN = re.compile(r"{{\[IMAGE_(\d+)\]}}", re.IGNORECASE)
-_MARKDOWN_IMAGE_PATTERN = re.compile(r"!\\[Image\s+(\d+)\]\([^)]+\")", re.IGNORECASE)
+_BRACKET_PLACEHOLDER_PATTERN = re.compile(r"\[\[IMAGE_(\d+)\]\]", re.IGNORECASE)
+_MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[Image\s+(\d+)\]\([^\)]+\)", re.IGNORECASE)
 
 
 class ContentBuilder:

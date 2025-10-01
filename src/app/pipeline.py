@@ -18,7 +18,8 @@ from ..platforms.wechat import (
     WeChatMediaUploader,
 )
 from ..services.wechat_components import ContentBuilder, PayloadBuilder
-from ..services.wechat_workflow import ArticleMetadata, WeChatArticleWorkflow
+from ..services.wechat_models import ArticleMetadata
+from ..services.wechat_workflow import WeChatArticleWorkflow
 from ..settings import AppConfig, load_config
 from ..utils.logging import get_logger
 from .runner import run as run_spider

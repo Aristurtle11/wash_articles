@@ -22,7 +22,8 @@ from src.platforms.wechat import (
     WeChatMediaUploader,
 )
 from src.services.wechat_components import ContentBuilder, PayloadBuilder
-from src.services.wechat_workflow import ArticleMetadata, WeChatArticleWorkflow
+from src.services.wechat_models import ArticleMetadata
+from src.services.wechat_workflow import WeChatArticleWorkflow
 
 
 def build_parser() -> argparse.ArgumentParser:
