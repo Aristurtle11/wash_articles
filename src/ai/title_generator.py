@@ -9,7 +9,7 @@ from typing import Sequence
 from google import genai
 
 from .base_node import BaseAIConfig, BaseAIGenerator
-from ..settings import load_config
+from ..settings import AppConfig, load_config
 from ..utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -20,8 +20,13 @@ class TitleConfig(BaseAIConfig):
     """Configuration values for title generation."""
 
     @classmethod
-    def from_app_config(cls, *, channel: str | None = None) -> "TitleConfig":
-        app_config = load_config()
+    def from_app_config(
+        cls,
+        *,
+        channel: str | None = None,
+        app_config: AppConfig | None = None,
+    ) -> "TitleConfig":
+        app_config = load_config() if app_config is None else app_config
         stage = app_config.title_for(channel) if channel is not None else app_config.title
 
         prompt_source = stage.prompt_path or stage.prompt_fallback

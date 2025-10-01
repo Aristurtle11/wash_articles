@@ -9,7 +9,7 @@ from typing import Sequence
 from google import genai
 
 from .base_node import BaseAIConfig, BaseAIGenerator
-from ..settings import load_config
+from ..settings import AppConfig, load_config
 from ..utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -22,8 +22,13 @@ class TranslationConfig(BaseAIConfig):
     target_language: str
 
     @classmethod
-    def from_app_config(cls, *, channel: str | None = None) -> "TranslationConfig":
-        app_config = load_config()
+    def from_app_config(
+        cls,
+        *,
+        channel: str | None = None,
+        app_config: AppConfig | None = None,
+    ) -> "TranslationConfig":
+        app_config = load_config() if app_config is None else app_config
         stage = app_config.ai_for(channel) if channel is not None else app_config.ai
 
         prompt_source = stage.prompt_path or stage.prompt_fallback
