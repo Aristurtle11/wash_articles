@@ -19,6 +19,11 @@ from src.platforms.wechat import WeChatApiError, WeChatDraftClient, WeChatMediaU
 
 
 _PLACEHOLDER_PATTERN = re.compile(r"{{\s*\[Image\s+(\d+)\]\s*}}", re.IGNORECASE)
+_HTML_PLACEHOLDER_PATTERN = re.compile(
+    r"<p[^>]*>\s*(?:{{\s*\[Image\s+(\d+)\]\s*}}|\[\[IMAGE_(\d+)\]\])\s*</p>",
+    re.IGNORECASE,
+)
+_BRACKET_PLACEHOLDER_PATTERN = re.compile(r"\[\[IMAGE_(\d+)\]\]", re.IGNORECASE)
 _MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[Image\s+(\d+)\]\([^\)]+\)", re.IGNORECASE)
 
 
@@ -163,6 +168,11 @@ class WeChatArticleWorkflow:
         text: str,
         uploads_sorted: Sequence[MediaUploadResult],
     ) -> tuple[str, bool]:
+        if _BRACKET_PLACEHOLDER_PATTERN.search(text):
+            text = _BRACKET_PLACEHOLDER_PATTERN.sub(
+                lambda match: f'{{{{[Image {match.group(1)}]}}}}', text
+            )
+
         matches = list(_PLACEHOLDER_PATTERN.finditer(text))
 
         if matches:
@@ -227,9 +237,26 @@ class WeChatArticleWorkflow:
         html: str,
         uploads_sorted: Sequence[MediaUploadResult],
     ) -> str:
-        matches = list(_PLACEHOLDER_PATTERN.finditer(html))
+        matches = list(_HTML_PLACEHOLDER_PATTERN.finditer(html))
 
         def replacement(match: re.Match[str]) -> str:
+            index_str = match.group(1) or match.group(2)
+            index = int(index_str)
+            try:
+                upload = uploads_sorted[index - 1]
+            except IndexError as exc:
+                raise RuntimeError(
+                    f"占位符索引 {index} 超出上传图片数量 {len(uploads_sorted)}"
+                ) from exc
+            return self._render_image_block(upload, index)
+
+        updated = _HTML_PLACEHOLDER_PATTERN.sub(replacement, html)
+        replaced_count = len(matches)
+
+        # Fallback: handle any bare [[IMAGE_N]] tokens that may remain.
+        bare_matches = list(_BRACKET_PLACEHOLDER_PATTERN.finditer(updated))
+
+        def bare_replacement(match: re.Match[str]) -> str:
             index = int(match.group(1))
             try:
                 upload = uploads_sorted[index - 1]
@@ -239,10 +266,12 @@ class WeChatArticleWorkflow:
                 ) from exc
             return self._render_image_block(upload, index)
 
-        updated = _PLACEHOLDER_PATTERN.sub(replacement, html)
+        if bare_matches:
+            updated = _BRACKET_PLACEHOLDER_PATTERN.sub(bare_replacement, updated)
+            replaced_count = max(replaced_count, len(bare_matches))
 
-        if len(uploads_sorted) > len(matches):
-            extras = uploads_sorted[len(matches) :]
+        if len(uploads_sorted) > replaced_count:
+            extras = uploads_sorted[replaced_count:]
             extra_blocks = "\n".join(
                 self._render_image_block(item, item.order) for item in extras
             )
@@ -256,9 +285,10 @@ class WeChatArticleWorkflow:
     def _render_image_block(self, upload: MediaUploadResult, index: int) -> str:
         alt = f"Image {index}"
         return (
-            f'<figure class="article-image" data-index="{index}">'
-            f"<img src=\"{upload.remote_url}\" alt=\"{alt}\" />"
-            "</figure>"
+            '<p style="text-align:center; margin:1.5em 0;">'
+            f'<img src="{upload.remote_url}" alt="{alt}" '
+            'style="max-width:100%; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.15);" />'
+            '</p>'
         )
 
     def _markdown_to_html(self, markdown_text: str) -> str:

@@ -1,13 +1,16 @@
-You are an experienced editorial designer. Read the following article and produce clean, reader-friendly HTML with a lightweight embedded `<style>` block.
+You are an experienced WeChat editorial designer. Read the following article and produce HTML that the WeChat editor will accept.
 
-Goals:
+Guidelines:
 - Preserve the original meaning and paragraph order.
-- Use semantic HTML structure inside `<body>` (e.g., `<article>`, `<header>`, `<p>`, `<figure>`/`<blockquote>` when appropriate).
-- Apply minimal CSS to improve readability on both desktop and mobile (comfortable line height, limited max-width, generous padding, neutral typography).
-- Leave a blank line (visual spacing) between paragraphs.
-- Do **not** invent media content. Keep image placeholders exactly as `{{[Image N]}}`; format them as standalone blocks so they are easy to replace later.
-- Avoid overly decorative styling; no animations or intrusive colors.
-- Return a complete HTML document (`<!DOCTYPE html>` ... `</html>`).
+- Use only WeChat-safe tags such as <h1>-<h6>, <p>, <br>, <strong>/<b>, <em>/<i>, <u>, <ul>, <ol>, <li>, <blockquote>, <a>, and <img>.
+- When the article contains `{{[Image N]}}`, output a standalone `<p>` that contains only the placeholder token `[[IMAGE_N]]` (double brackets, uppercase, no extra spaces).
+- Apply inline styles (font-size, line-height, color, text-align, margin, padding, letter-spacing) to achieve comfortable typography; do not use <style>, <link>, or class attributes (image placeholders stay unstyled).
+- Aim for readable spacing with inline margins instead of empty paragraphs; include clear section breaks for headings.
+- Leave placeholder paragraphs otherwise empty; the publishing step will replace them with final <img> markup.
+- Place text directly after opening tags (e.g., <p>, <h2>) without leading spaces or indentation; avoid starting lines with whitespace characters.
+- Avoid unsupported features such as scripts, iframes, tables, flexbox layouts, or animations.
+- Respond with a plain HTML snippet (no <!DOCTYPE> or <html> wrapper) and output only the HTML content.
+- Do not wrap the response in Markdown fences or language tags (e.g., ```shell); start directly with the first HTML tag and end with the final closing tag.
 
 Input article:
 ```

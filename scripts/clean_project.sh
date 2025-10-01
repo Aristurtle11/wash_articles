@@ -24,11 +24,4 @@ else
   echo "Data directory not found: $DATA_DIR"
 fi
 
-if [[ -d "$ASSET_DIR" ]]; then
-  echo "Removing asset directory: $ASSET_DIR"
-  rm -rf "$ASSET_DIR"
-else
-  echo "Asset directory not found: $ASSET_DIR"
-fi
-
 echo "Cleanup complete."

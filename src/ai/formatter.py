@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -156,6 +157,7 @@ class Formatter:
             raise RuntimeError(f"Gemini API call failed: {exc}") from exc
 
         formatted = response.text or ""
+        formatted = self._strip_block_leading_whitespace(formatted)
         output_path.write_text(formatted, encoding="utf-8")
         LOGGER.info("Wrote formatted HTML to %s", output_path)
         return output_path
@@ -175,3 +177,11 @@ class Formatter:
             LOGGER.warning("No files matched pattern %s", pattern)
             return []
         return self.format_many(files)
+
+    @staticmethod
+    def _strip_block_leading_whitespace(html: str) -> str:
+        """Remove indentation that would surface as visible spaces in WeChat."""
+        if not html:
+            return html
+        pattern = re.compile(r"(<(?:p|h[1-6]|blockquote|li|figure)[^>]*>)\s+", re.IGNORECASE)
+        return pattern.sub(r"\1", html)
