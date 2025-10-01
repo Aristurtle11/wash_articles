@@ -2,7 +2,7 @@
 
 ```
 /wash_articles/
-├── config.ini
+├── config.toml
 ├── main.py
 ├── requirements.txt
 ├── src/
@@ -26,7 +26,9 @@
 │       ├── html.py
 │       └── logging.py
 ├── scripts/
-│   └── fetch_cookies.py
+│   ├── fetch_cookies.py
+│   ├── migrate_config.py
+│   └── publish_wechat_article.py
 ├── data/
 │   ├── logs/
 │   ├── processed/

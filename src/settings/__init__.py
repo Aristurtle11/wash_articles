@@ -2,11 +2,10 @@
 
 from .loader import (
     AppConfig,
-    AISettings,
-    FormattingSettings,
     HttpSettings,
     PathSettings,
-    TitleSettings,
+    PipelineSettings,
+    StageSettings,
     load_config,
     load_default_headers,
     project_path,
@@ -15,11 +14,10 @@ from .loader import (
 
 __all__ = [
     "AppConfig",
-    "AISettings",
-    "FormattingSettings",
     "HttpSettings",
     "PathSettings",
-    "TitleSettings",
+    "PipelineSettings",
+    "StageSettings",
     "load_config",
     "load_default_headers",
     "save_default_headers",

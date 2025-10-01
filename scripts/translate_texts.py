@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prompt", help="Override prompt file path")
     parser.add_argument("--output-dir", help="Directory for translated files")
     parser.add_argument("--model", help="Gemini model name")
+    parser.add_argument("--channel", help="Logical channel (defaults to pipeline.default_channel)")
     parser.add_argument("--language", help="Target language (default from config)")
     parser.add_argument("--relative-to", help="Base path to preserve directory structure")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing translations")
@@ -48,7 +49,8 @@ def main() -> None:
     configure_logging()
     args = parse_args()
     app_config = load_config()
-    cfg = TranslationConfig.from_app_config()
+    channel = args.channel or app_config.pipeline.default_channel or app_config.paths.default_channel or app_config.default_spider
+    cfg = TranslationConfig.from_app_config(channel=channel)
 
     if args.prompt:
         cfg = replace(cfg, prompt_path=Path(args.prompt))
@@ -67,7 +69,11 @@ def main() -> None:
         LOGGER.info("No files to translate. Exiting.")
         return
 
-    relative_base = Path(args.relative_to).resolve() if args.relative_to else app_config.paths.raw_dir.resolve()
+    relative_base = (
+        Path(args.relative_to).resolve()
+        if args.relative_to
+        else app_config.paths.raw_for(channel).resolve()
+    )
     translator = Translator.from_config(
         api_key=args.api_key,
         config=cfg,

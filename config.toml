@@ -1,0 +1,54 @@
+[app]
+default_spider = "example"
+
+[paths]
+data_dir = "data"
+log_dir = "data/logs"
+state_dir = "data/state"
+cookie_jar = "data/state/cookies.txt"
+
+[http]
+min_delay = 0.5
+max_delay = 1.5
+max_attempts = 3
+backoff_factor = 1.5
+timeout = 10
+
+[pipeline]
+default_channel = "realtor"
+
+[pipeline.stages.translate]
+kind = "translation"
+model = "gemini-2.5-flash"
+prompt_path = "prompts/translation_prompt.txt"
+output_dir = "data/{channel}/translated"
+input_glob = "data/{channel}/raw/**/*.txt"
+target_language = "zh-CN"
+timeout = 30
+thinking_budget = null
+
+[pipeline.stages.format]
+kind = "formatting"
+model = "gemini-2.5-flash"
+prompt_path = "prompts/formatting_prompt.txt"
+output_dir = "data/{channel}/formatted"
+input_glob = "data/{channel}/translated/**/*.translated.txt"
+timeout = 30
+thinking_budget = null
+
+[pipeline.stages.title]
+kind = "title"
+model = "gemini-2.5-flash"
+prompt_path = "prompts/title_prompt.txt"
+output_dir = "data/{channel}/titles"
+input_glob = "data/{channel}/translated/**/*.translated.txt"
+timeout = 20
+thinking_budget = null
+
+[[spiders]]
+name = "example"
+start_url = "https://example.com/"
+
+[[spiders]]
+name = "realtor"
+start_url = "https://www.realtor.com/news/trends/mamdani-effect-new-york-city-mayoral-election-westchester-county/"

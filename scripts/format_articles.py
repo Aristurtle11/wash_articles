@@ -35,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prompt", help="Override prompt file path")
     parser.add_argument("--output-dir", help="Directory for formatted HTML")
     parser.add_argument("--model", help="Gemini model name")
+    parser.add_argument("--channel", help="Logical channel (defaults to pipeline.default_channel)")
     parser.add_argument("--timeout", type=float, help="Request timeout in seconds")
     parser.add_argument("--relative-to", help="Preserve structure relative to this base path")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing formatted files")
@@ -46,8 +47,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     configure_logging()
     args = parse_args()
-    _ = load_config()  # ensure config.ini is validated and directories created
-    cfg = FormattingConfig.from_app_config()
+    app_config = load_config()  # ensure config.toml is validated and directories created
+    channel = args.channel or app_config.pipeline.default_channel or app_config.paths.default_channel or app_config.default_spider
+    cfg = FormattingConfig.from_app_config(channel=channel)
 
     if args.prompt:
         cfg = replace(cfg, prompt_path=Path(args.prompt))
@@ -69,7 +71,7 @@ def main() -> None:
     relative_base = (
         Path(args.relative_to).resolve()
         if args.relative_to
-        else cfg.output_dir.resolve()
+        else app_config.paths.translated_for(channel).resolve()
     )
 
     formatter = Formatter.from_config(

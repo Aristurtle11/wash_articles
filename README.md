@@ -17,18 +17,19 @@
 
 ## Step 1：抓取文章与图片
 
-1. **配置爬虫**（`config.ini`）
+1. **配置爬虫**（`config.toml`）
    - `[app] default_spider` 决定默认执行的爬虫，例如 `realtor`。
    - `[paths]` 控制输出目录，默认生成于 `data/`。
    - 每个 `[spider:<name>]` 段定义入口 URL 及自定义参数。
+   - 如仍保留 `config.ini`，可运行 `python scripts/migrate_config.py --input config.ini --output config.toml` 完成迁移。
 2. **运行爬虫**
    ```bash
    python main.py                # 使用默认爬虫
    python main.py --spider realtor
    ```
 3. **产出目录**
-   - 原始文本、图片：`data/raw/<channel>/`
-   - 处理后的 JSONL：`data/processed/<channel>.jsonl`
+   - 原始文本、图片：`data/<channel>/raw/`
+   - 处理后的 JSONL：`data/<channel>/artifacts/<channel>.jsonl`
    - 日志：`data/logs/`
 
 若目标站点需要特殊 Cookie，可通过 `scripts/fetch_cookies.py <URL>` 预先刷新 `data/state/cookies.txt`。
@@ -36,18 +37,18 @@
 ## Step 2：使用 AI 翻译文章
 
 1. **确认配置**
-   - `config.ini` 的 `[ai]` 段定义默认模型、Prompt、输出目录与输入文件的 glob 模式。
+   - `config.toml` 的 `[pipeline.stages.translate]` 段集中配置翻译模型、Prompt、输出目录与输入文件的 glob 模式。
    - Prompt 模板位于 `prompts/translation_prompt.txt`，可按需修改语气与约束。
 2. **执行翻译**
    ```bash
    python scripts/translate_texts.py
    ```
    常用参数：
-   - `--input "data/raw/realtor/*_core_paragraphs.txt"` 指定翻译源。
-   - `--output-dir data/translated/realtor` 调整译文目录。
+   - `--input "data/realtor/raw/*_core_paragraphs.txt"` 指定翻译源。
+   - `--output-dir data/realtor/translated` 调整译文目录。
    - `--overwrite` 允许覆盖旧译文。
 3. **产出目录**
-   - 译文默认写入 `data/translated/<channel>/...*.translated.txt`
+   - 译文默认写入 `data/<channel>/translated/...*.translated.txt`
    - 输入文件与译文保持相对目录一致，便于后续匹配图片资源。
 
 若遇到 API 限额或网络问题，脚本会给出详细日志，便于重试。
@@ -59,8 +60,8 @@
    python scripts/format_articles.py
    ```
    常用参数：
-   - `--input "data/translated/realtor/*.translated.txt"` 指定需要排版的译文。
-   - `--output-dir data/translated/realtor` 改变 HTML 输出位置。
+   - `--input "data/realtor/translated/*.translated.txt"` 指定需要排版的译文。
+   - `--output-dir data/realtor/translated` 改变 HTML 输出位置。
    - `--overwrite` 允许覆盖已有 `.formatted.html`。
 2. **结果**
    - 每个译文旁会生成对应的 `*.formatted.html`，内含简单 CSS 与结构化 HTML，但仍保留 `{{[Image N]}}` 占位符，方便后续替换。
@@ -78,7 +79,7 @@
      --channel realtor \
      --dry-run          # 先查看预览 JSON（可选）
    ```
-   - 脚本会自动上传 `data/raw/<channel>/images/image_*.{jpg,png}` 为永久素材，并将返回的 `media_id` 与 `url` 注入译文。
+   - 脚本会自动上传 `data/<channel>/raw/images/image_*.{jpg,png}` 为永久素材，并将返回的 `media_id` 与 `url` 注入译文。
    - 如存在 `.formatted.html`，会以该 HTML 作为稿件主体；否则退回 Markdown→HTML 转换流程。
    - 去掉 `--dry-run` 后会调用微信 `draft/add` 接口，成功时输出草稿 `media_id`。
 3. **命令输出**
@@ -99,7 +100,7 @@ python scripts/upload_wechat_image.py --channel realtor
 ## 目录速览
 
 ```
-├─ config.ini                 # 统一配置入口（爬虫、路径、AI 参数）
+├─ config.toml                # 统一配置入口（爬虫、路径、AI 阶段）
 ├─ data/                      # 爬取数据、译文、状态缓存
 ├─ prompts/                   # 翻译 Prompt 模板
 ├─ scripts/                   # 抓取后处理、翻译、发布脚本

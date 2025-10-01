@@ -30,18 +30,26 @@ class TranslationConfig:
     thinking_budget: int | None = None
 
     @classmethod
-    def from_app_config(cls) -> "TranslationConfig":
-        config = load_config()
-        ai = config.ai
+    def from_app_config(cls, *, channel: str | None = None) -> "TranslationConfig":
+        app_config = load_config()
+        stage = app_config.ai_for(channel) if channel is not None else app_config.ai
+
+        prompt_source = stage.prompt_path or stage.prompt_fallback or (app_config.paths.data_dir / "prompts" / "translation_prompt.txt")
+        output_source = stage.output_dir or stage.output_dir_fallback or app_config.paths.translated_for(channel)
+        input_glob = stage.input_glob or str(app_config.paths.raw_for(channel) / "**/*.txt")
+        target_language = stage.target_language or "zh-CN"
+        timeout = stage.timeout or 30
+
         return cls(
-            model=ai.model,
-            prompt_path=ai.prompt_path,
-            output_dir=ai.output_dir,
-            input_glob=ai.input_glob,
-            target_language=ai.target_language,
-            timeout=ai.timeout,
-            thinking_budget=ai.thinking_budget,
+            model=stage.model or "",
+            prompt_path=Path(prompt_source),
+            output_dir=Path(output_source),
+            input_glob=input_glob,
+            target_language=target_language,
+            timeout=timeout,
+            thinking_budget=stage.thinking_budget,
         )
+
 
 
 class Translator:

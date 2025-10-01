@@ -24,8 +24,8 @@ def main() -> None:
     platform = args.platform.lower()
     channel = args.channel
     _ = (platform, channel)
-    translated_root = Path("data/translated")
-    raw_root = Path("data/raw")
+    translated_root = Path(f"data/{channel}/translated")
+    raw_root = Path(f"data/{channel}/raw")
     dry_run = bool(args.dry_run)
     _ = (translated_root, raw_root, dry_run)
     # TODO: Wire up service, factories, and execute workflow.

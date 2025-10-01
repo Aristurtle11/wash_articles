@@ -18,8 +18,18 @@ else
 fi
 
 if [[ -d "$DATA_DIR" ]]; then
-  echo "Removing data directory: $DATA_DIR"
-  rm -rf "$DATA_DIR"
+  echo "Pruning channel data under: $DATA_DIR"
+  shopt -s nullglob
+  for entry in "$DATA_DIR"/*; do
+    name="$(basename "$entry")"
+    if [[ "$name" == "logs" || "$name" == "state" ]]; then
+      echo "  keeping $name/"
+      continue
+    fi
+    echo "  removing $name/"
+    rm -rf "$entry"
+  done
+  shopt -u nullglob
 else
   echo "Data directory not found: $DATA_DIR"
 fi

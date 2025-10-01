@@ -4,16 +4,38 @@ from __future__ import annotations
 
 import json
 import os
-from configparser import ConfigParser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
+
+try:  # pragma: no cover - Python 3.11+ includes tomllib
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - fallback for older versions
+    import tomli as tomllib  # type: ignore[no-redef]
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG_NAME = "config.ini"
+DEFAULT_CONFIG_NAME = "config.toml"
 CONFIG_ENV_VAR = "WASH_CONFIG"
 DEFAULT_HEADERS_PATH = Path(__file__).with_name("default_headers.json")
 DEFAULT_HEADERS_TEMPLATE_PATH = Path(__file__).with_name("default_headers.template.json")
+
+_STAGE_FALLBACK_PROMPTS = {
+    "translate": PROJECT_ROOT / "prompts" / "translation_prompt.txt",
+    "format": PROJECT_ROOT / "prompts" / "formatting_prompt.txt",
+    "title": PROJECT_ROOT / "prompts" / "title_prompt.txt",
+}
+
+_STAGE_FALLBACK_OUTPUT_DIRS = {
+    "translate": PROJECT_ROOT / "data" / "translated",
+    "format": PROJECT_ROOT / "data" / "translated",
+    "title": PROJECT_ROOT / "data" / "translated",
+}
+
+_STAGE_FALLBACK_INPUTS = {
+    "translate": "data/{channel}/raw/**/*.txt",
+    "format": "data/{channel}/translated/**/*.translated.txt",
+    "title": "data/{channel}/translated/**/*.translated.txt",
+}
 
 
 @dataclass(slots=True)
@@ -29,10 +51,140 @@ class HttpSettings:
 class PathSettings:
     data_dir: Path
     raw_dir: Path
-    processed_dir: Path
+    translated_dir: Path
+    formatted_dir: Path
+    titles_dir: Path
+    artifacts_dir: Path
     log_dir: Path
     state_dir: Path
     cookie_jar: Path
+    default_channel: str | None = None
+
+    @property
+    def processed_dir(self) -> Path:
+        return self.artifacts_dir
+
+    def channel_root(self, channel: str | None = None) -> Path:
+        name = channel or self.default_channel or "default"
+        return self.data_dir / name
+
+    def raw_for(self, channel: str | None = None) -> Path:
+        return self.channel_root(channel) / "raw"
+
+    def translated_for(self, channel: str | None = None) -> Path:
+        return self.channel_root(channel) / "translated"
+
+    def formatted_for(self, channel: str | None = None) -> Path:
+        return self.channel_root(channel) / "formatted"
+
+    def titles_for(self, channel: str | None = None) -> Path:
+        return self.channel_root(channel) / "titles"
+
+    def artifacts_for(self, channel: str | None = None) -> Path:
+        return self.channel_root(channel) / "artifacts"
+
+
+@dataclass(slots=True)
+class StageSettings:
+    """Configuration for a single pipeline stage."""
+
+    name: str
+    kind: str
+    model: str | None = None
+    prompt_path: Path | None = None
+    output_dir: Path | None = None
+    input_glob: str | None = None
+    timeout: float | None = None
+    thinking_budget: int | None = None
+    target_language: str | None = None
+    prompt_template: str | None = None
+    output_dir_template: str | None = None
+    input_glob_template: str | None = None
+    prompt_fallback: Path | None = None
+    output_dir_fallback: Path | None = None
+    input_glob_fallback: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+    def for_channel(self, channel: str | None) -> "StageSettings":
+        """Return a stage with paths resolved for the given channel."""
+
+        if channel is None:
+            return self
+
+        prompt_path = self.prompt_path
+        if self.prompt_template and "{channel}" in self.prompt_template:
+            fallback = self.prompt_fallback or self.prompt_path or PROJECT_ROOT / "prompts" / f"{self.name}.txt"
+            prompt_path = _resolve_template_to_path(self.prompt_template, channel=channel, fallback=fallback)
+
+        output_dir = self.output_dir
+        if self.output_dir_template and "{channel}" in self.output_dir_template:
+            fallback = self.output_dir_fallback or self.output_dir or PROJECT_ROOT / "data" / self.name
+            output_dir = _resolve_template_to_path(self.output_dir_template, channel=channel, fallback=fallback)
+
+        input_glob = self.input_glob
+        if self.input_glob_template and "{channel}" in self.input_glob_template:
+            fallback = self.input_glob_fallback or self.input_glob
+            input_glob = _resolve_template_to_glob(self.input_glob_template, channel=channel, fallback=fallback)
+
+        return StageSettings(
+            name=self.name,
+            kind=self.kind,
+            model=self.model,
+            prompt_path=prompt_path,
+            output_dir=output_dir,
+            input_glob=input_glob,
+            timeout=self.timeout,
+            thinking_budget=self.thinking_budget,
+            target_language=self.target_language,
+            prompt_template=self.prompt_template,
+            output_dir_template=self.output_dir_template,
+            input_glob_template=self.input_glob_template,
+            prompt_fallback=self.prompt_fallback,
+            output_dir_fallback=self.output_dir_fallback,
+            input_glob_fallback=self.input_glob_fallback,
+            extra=self.extra.copy(),
+        )
+
+
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a serialisable view of the stage."""
+
+        data: dict[str, Any] = {
+            "name": self.name,
+            "kind": self.kind,
+            "model": self.model,
+            "prompt_path": str(self.prompt_path) if self.prompt_path else None,
+            "output_dir": str(self.output_dir) if self.output_dir else None,
+            "input_glob": self.input_glob,
+            "timeout": self.timeout,
+            "thinking_budget": self.thinking_budget,
+            "target_language": self.target_language,
+            "prompt_template": self.prompt_template,
+            "output_dir_template": self.output_dir_template,
+            "input_glob_template": self.input_glob_template,
+            "prompt_fallback": str(self.prompt_fallback) if self.prompt_fallback else None,
+            "output_dir_fallback": str(self.output_dir_fallback) if self.output_dir_fallback else None,
+            "input_glob_fallback": self.input_glob_fallback,
+        }
+        data.update(self.extra)
+        return data
+
+
+@dataclass(slots=True)
+class PipelineSettings:
+    default_channel: str | None
+    stages: dict[str, StageSettings]
+
+    def get(self, name: str) -> StageSettings:
+        try:
+            return self.stages[name]
+        except KeyError as exc:  # pragma: no cover - defensive branch
+            available = ", ".join(sorted(self.stages)) or "<none>"
+            raise KeyError(f"未配置名为 '{name}' 的流水线阶段，可用阶段: {available}") from exc
+
+    def resolve(self, name: str, *, channel: str | None = None) -> StageSettings:
+        stage = self.get(name)
+        return stage if channel is None else stage.for_channel(channel)
 
 
 @dataclass(slots=True)
@@ -40,41 +192,40 @@ class AppConfig:
     default_spider: str
     http: HttpSettings
     paths: PathSettings
-    ai: "AISettings"
-    formatting: "FormattingSettings"
-    title: "TitleSettings"
+    pipeline: PipelineSettings
     spiders: dict[str, dict[str, str]]
 
+    def _stage_by_alias(self, *aliases: str, channel: str | None = None) -> StageSettings:
+        for alias in aliases:
+            if alias in self.pipeline.stages:
+                stage = self.pipeline.stages[alias]
+                return stage if channel is None else stage.for_channel(channel)
+        available = ", ".join(sorted(self.pipeline.stages)) or "<none>"
+        raise KeyError(f"未找到阶段 {aliases}，请检查 pipeline 配置 (当前可用: {available})")
 
-@dataclass(slots=True)
-class AISettings:
-    model: str
-    prompt_path: Path
-    output_dir: Path
-    input_glob: str
-    target_language: str
-    timeout: float
-    thinking_budget: int | None
+    def get_stage(self, name: str, *, channel: str | None = None) -> StageSettings:
+        return self.pipeline.resolve(name, channel=channel)
 
+    @property
+    def ai(self) -> StageSettings:
+        return self._stage_by_alias("translate", "translation", "ai")
 
-@dataclass(slots=True)
-class FormattingSettings:
-    model: str
-    prompt_path: Path
-    output_dir: Path
-    input_glob: str
-    timeout: float
-    thinking_budget: int | None
+    def ai_for(self, channel: str | None) -> StageSettings:
+        return self._stage_by_alias("translate", "translation", "ai", channel=channel)
 
+    @property
+    def formatting(self) -> StageSettings:
+        return self._stage_by_alias("format", "formatting")
 
-@dataclass(slots=True)
-class TitleSettings:
-    model: str
-    prompt_path: Path
-    output_dir: Path
-    input_glob: str
-    timeout: float
-    thinking_budget: int | None
+    def formatting_for(self, channel: str | None) -> StageSettings:
+        return self._stage_by_alias("format", "formatting", channel=channel)
+
+    @property
+    def title(self) -> StageSettings:
+        return self._stage_by_alias("title", "headline")
+
+    def title_for(self, channel: str | None) -> StageSettings:
+        return self._stage_by_alias("title", "headline", channel=channel)
 
 
 def _to_path(value: str | None, *, fallback: Path) -> Path:
@@ -82,14 +233,6 @@ def _to_path(value: str | None, *, fallback: Path) -> Path:
         return fallback
     candidate = Path(value)
     return candidate if candidate.is_absolute() else PROJECT_ROOT / candidate
-
-
-def _load_parser(config_path: Path) -> ConfigParser:
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-    parser = ConfigParser()
-    parser.read(config_path)
-    return parser
 
 
 def _config_path(explicit: str | os.PathLike[str] | None = None) -> Path:
@@ -102,26 +245,148 @@ def _config_path(explicit: str | os.PathLike[str] | None = None) -> Path:
     return candidate if candidate.is_absolute() else PROJECT_ROOT / candidate
 
 
+def _load_toml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    with path.open("rb") as fp:
+        return tomllib.load(fp)
+
+
+def _ensure_directories(paths: Iterable[Path]) -> None:
+    for directory in paths:
+        directory.mkdir(parents=True, exist_ok=True)
+
+
+def _as_template(value: Any | None, fallback: Path | str) -> str:
+    base = value if value is not None else fallback
+    if isinstance(base, Path):
+        try:
+            base = base.relative_to(PROJECT_ROOT)
+        except ValueError:
+            pass
+        return str(base)
+    return str(base)
+
+
+def _resolve_template_to_path(template: str, *, channel: str | None, fallback: Path) -> Path:
+    target = template
+    if "{channel}" in target:
+        if channel:
+            target = target.format(channel=channel)
+        else:
+            return fallback
+    return _to_path(target, fallback=fallback)
+
+
+def _resolve_template_to_glob(template: str, *, channel: str | None, fallback: str | None) -> str | None:
+    if "{channel}" in template:
+        if channel:
+            return template.format(channel=channel)
+        return fallback
+    return template
+
+
+def _build_stage(name: str, data: dict[str, Any], *, default_channel: str | None) -> StageSettings:
+    kind = str(data.get("kind", name))
+    model = data.get("model")
+
+    prompt_fallback = _STAGE_FALLBACK_PROMPTS.get(name, PROJECT_ROOT / "prompts" / f"{name}.txt")
+    output_fallback = _STAGE_FALLBACK_OUTPUT_DIRS.get(name, PROJECT_ROOT / "data" / name)
+    input_fallback = _STAGE_FALLBACK_INPUTS.get(name)
+
+    prompt_template = _as_template(data.get("prompt_path"), prompt_fallback)
+    output_template = _as_template(data.get("output_dir"), output_fallback)
+    input_template = _as_template(data.get("input_glob"), input_fallback or "") if data.get("input_glob") is not None else (input_fallback or "")
+
+    prompt_path = _resolve_template_to_path(prompt_template, channel=default_channel, fallback=prompt_fallback)
+    output_dir = _resolve_template_to_path(output_template, channel=default_channel, fallback=output_fallback)
+    input_glob = _resolve_template_to_glob(str(input_template), channel=default_channel, fallback=input_fallback)
+
+    timeout = float(data.get("timeout", 30)) if data.get("timeout") is not None else None
+    thinking_raw = data.get("thinking_budget")
+    thinking_budget: int | None
+    if isinstance(thinking_raw, (int, float)):
+        thinking_budget = int(thinking_raw)
+    elif isinstance(thinking_raw, str) and thinking_raw.strip():
+        thinking_budget = int(float(thinking_raw))
+    else:
+        thinking_budget = None
+    target_language = data.get("target_language")
+    if target_language is None and kind == "translation":
+        target_language = "zh-CN"
+
+    recognised = {
+        "kind",
+        "model",
+        "prompt_path",
+        "output_dir",
+        "input_glob",
+        "timeout",
+        "thinking_budget",
+        "target_language",
+    }
+    extra = {k: v for k, v in data.items() if k not in recognised}
+
+    return StageSettings(
+        name=name,
+        kind=kind,
+        model=model,
+        prompt_path=prompt_path,
+        output_dir=output_dir,
+        input_glob=input_glob,
+        timeout=timeout,
+        thinking_budget=thinking_budget,
+        target_language=target_language,
+        prompt_template=prompt_template,
+        output_dir_template=output_template,
+        input_glob_template=str(input_template) if input_template else None,
+        prompt_fallback=prompt_fallback,
+        output_dir_fallback=output_fallback,
+        input_glob_fallback=input_fallback,
+        extra=extra,
+    )
+
+
+
 def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
     path = _config_path(config_path)
-    parser = _load_parser(path)
+    data = _load_toml(path)
 
-    app_section = parser["app"] if parser.has_section("app") else {}
-    paths_section = parser["paths"] if parser.has_section("paths") else {}
-    http_section = parser["http"] if parser.has_section("http") else {}
-    ai_section = parser["ai"] if parser.has_section("ai") else {}
-    formatting_section = parser["formatting"] if parser.has_section("formatting") else {}
-    title_section = parser["title"] if parser.has_section("title") else {}
+    app_section = data.get("app", {})
+    paths_section = data.get("paths", {})
+    http_section = data.get("http", {})
+    pipeline_section = data.get("pipeline", {})
+    stages_section = pipeline_section.get("stages", {})
 
     data_dir = _to_path(paths_section.get("data_dir"), fallback=PROJECT_ROOT / "data")
-    raw_dir = _to_path(paths_section.get("raw_dir"), fallback=data_dir / "raw")
-    processed_dir = _to_path(paths_section.get("processed_dir"), fallback=data_dir / "processed")
     log_dir = _to_path(paths_section.get("log_dir"), fallback=data_dir / "logs")
     state_dir = _to_path(paths_section.get("state_dir"), fallback=data_dir / "state")
     cookie_path = _to_path(paths_section.get("cookie_jar"), fallback=state_dir / "cookies.txt")
 
-    for directory in (data_dir, raw_dir, processed_dir, log_dir, state_dir, cookie_path.parent):
-        directory.mkdir(parents=True, exist_ok=True)
+    configured_channel = pipeline_section.get("default_channel")
+    default_channel = configured_channel or app_section.get("default_spider")
+    channel_root = data_dir / (default_channel or "default")
+    raw_dir = _to_path(paths_section.get("raw_dir"), fallback=channel_root / "raw")
+    translated_dir = _to_path(paths_section.get("translated_dir"), fallback=channel_root / "translated")
+    formatted_dir = _to_path(paths_section.get("formatted_dir"), fallback=channel_root / "formatted")
+    titles_dir = _to_path(paths_section.get("titles_dir"), fallback=channel_root / "titles")
+    artifacts_value = paths_section.get("artifacts_dir") or paths_section.get("processed_dir")
+    artifacts_dir = _to_path(artifacts_value, fallback=channel_root / "artifacts")
+
+    _ensure_directories(
+        (
+            data_dir,
+            channel_root,
+            raw_dir,
+            translated_dir,
+            formatted_dir,
+            titles_dir,
+            artifacts_dir,
+            log_dir,
+            state_dir,
+            cookie_path.parent,
+        )
+    )
 
     http_settings = HttpSettings(
         timeout=float(http_section.get("timeout", 10)),
@@ -131,73 +396,21 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         backoff_factor=float(http_section.get("backoff_factor", 1.5)),
     )
 
-    ai_settings = AISettings(
-        model=ai_section.get("model", "gemini-1.5-flash"),
-        prompt_path=_to_path(
-            ai_section.get("prompt_path"),
-            fallback=PROJECT_ROOT / "prompts" / "translation_prompt.txt",
-        ),
-        output_dir=_to_path(
-            ai_section.get("output_dir"),
-            fallback=PROJECT_ROOT / "data" / "translated",
-        ),
-        input_glob=ai_section.get("input_glob", "data/raw/**/*.txt"),
-        target_language=ai_section.get("target_language", "zh-CN"),
-        timeout=float(ai_section.get("timeout", 30)),
-        thinking_budget=(
-            int(ai_section.get("thinking_budget"))
-            if ai_section.get("thinking_budget") not in (None, "")
-            else None
-        ),
+    default_channel = pipeline_section.get("default_channel")
+    stages = {name: _build_stage(name, stage_data, default_channel=default_channel) for name, stage_data in stages_section.items()}
+
+    pipeline_settings = PipelineSettings(
+        default_channel=default_channel,
+        stages=stages,
     )
 
-    formatting_settings = FormattingSettings(
-        model=formatting_section.get("model", ai_settings.model),
-        prompt_path=_to_path(
-            formatting_section.get("prompt_path"),
-            fallback=PROJECT_ROOT / "prompts" / "formatting_prompt.txt",
-        ),
-        output_dir=_to_path(
-            formatting_section.get("output_dir"),
-            fallback=ai_settings.output_dir,
-        ),
-        input_glob=formatting_section.get(
-            "input_glob", "data/translated/**/*.translated.txt"
-        ),
-        timeout=float(formatting_section.get("timeout", ai_settings.timeout)),
-        thinking_budget=(
-            int(formatting_section.get("thinking_budget"))
-            if formatting_section.get("thinking_budget") not in (None, "")
-            else ai_settings.thinking_budget
-        ),
-    )
-
-    title_settings = TitleSettings(
-        model=title_section.get("model", formatting_settings.model),
-        prompt_path=_to_path(
-            title_section.get("prompt_path"),
-            fallback=PROJECT_ROOT / "prompts" / "title_prompt.txt",
-        ),
-        output_dir=_to_path(
-            title_section.get("output_dir"),
-            fallback=formatting_settings.output_dir,
-        ),
-        input_glob=title_section.get(
-            "input_glob", formatting_settings.input_glob
-        ),
-        timeout=float(title_section.get("timeout", formatting_settings.timeout)),
-        thinking_budget=(
-            int(title_section.get("thinking_budget"))
-            if title_section.get("thinking_budget") not in (None, "")
-            else formatting_settings.thinking_budget
-        ),
-    )
-
+    spiders_list = data.get("spiders", [])
     spiders: dict[str, dict[str, str]] = {}
-    for section in parser.sections():
-        if section.lower().startswith("spider:"):
-            spider_name = section.split(":", 1)[1].strip()
-            spiders[spider_name] = {k: v for k, v in parser[section].items()}
+    for item in spiders_list:
+        name = item.get("name")
+        if not name:
+            continue
+        spiders[name] = {k: v for k, v in item.items() if k != "name"}
 
     config = AppConfig(
         default_spider=app_section.get("default_spider", "example"),
@@ -205,14 +418,16 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         paths=PathSettings(
             data_dir=data_dir,
             raw_dir=raw_dir,
-            processed_dir=processed_dir,
+            translated_dir=translated_dir,
+            formatted_dir=formatted_dir,
+            titles_dir=titles_dir,
+            artifacts_dir=artifacts_dir,
             log_dir=log_dir,
             state_dir=state_dir,
             cookie_jar=cookie_path,
+            default_channel=default_channel,
         ),
-        ai=ai_settings,
-        formatting=formatting_settings,
-        title=title_settings,
+        pipeline=pipeline_settings,
         spiders=spiders,
     )
     return config

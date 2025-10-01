@@ -11,7 +11,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.ai.title_generator import TitleGenerator
+from src.ai.title_generator import TitleConfig, TitleGenerator
+from src.settings import load_config
 from src.platforms import ContentBundle
 from src.platforms.wechat import (
     WeChatApiClient,
@@ -33,15 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--translated-root",
-        default=Path("data/translated"),
         type=Path,
-        help="Root directory for translated articles",
+        help="Override translated article root (defaults to data/<channel>/translated)",
     )
     parser.add_argument(
         "--raw-root",
-        default=Path("data/raw"),
         type=Path,
-        help="Root directory for raw images",
+        help="Override raw image root (defaults to data/<channel>/raw)",
     )
     parser.add_argument("--title", help="Article title; defaults to the file名转化")
     parser.add_argument("--author", help="Author name")
@@ -71,18 +70,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def select_article(translated_root: Path, channel: str) -> Path:
-    channel_dir = translated_root / channel
-    if not channel_dir.is_dir():
-        raise FileNotFoundError(f"未找到翻译文章目录: {channel_dir}")
-    candidates = sorted(channel_dir.glob("*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
+def select_article(translated_root: Path) -> Path:
+    if not translated_root.is_dir():
+        raise FileNotFoundError(f"未找到翻译文章目录: {translated_root}")
+    candidates = sorted(translated_root.glob("*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not candidates:
-        raise FileNotFoundError(f"目录 {channel_dir} 中未发现文章文件")
+        raise FileNotFoundError(f"目录 {translated_root} 中未发现文章文件")
     return candidates[0]
 
 
-def collect_images(raw_root: Path, channel: str) -> list[Path]:
-    image_dir = raw_root / channel / "images"
+def collect_images(raw_root: Path) -> list[Path]:
+    image_dir = raw_root / "images"
     if not image_dir.is_dir():
         raise FileNotFoundError(f"未找到图片目录: {image_dir}")
     images = sorted(p for p in image_dir.iterdir() if p.is_file() and p.name.lower().startswith("image_"))
@@ -96,10 +94,13 @@ def derive_title_from_path(article_path: Path) -> str:
     return stem.replace("_", " ").replace("-", " ").strip().title()
 
 
-def generate_ai_title(article_path: Path, translated_root: Path) -> str:
+def generate_ai_title(article_path: Path, translated_root: Path, channel: str) -> str:
     """Generate or reuse an AI-crafted Chinese title for the article."""
 
-    generator = TitleGenerator.from_config(relative_to=translated_root)
+    generator = TitleGenerator.from_config(
+        config=TitleConfig.from_app_config(channel=channel),
+        relative_to=translated_root,
+    )
     title_path = generator.generate_title_file(article_path)
     return title_path.read_text(encoding="utf-8").strip()
 
@@ -107,6 +108,7 @@ def generate_ai_title(article_path: Path, translated_root: Path) -> str:
 def resolve_title(
     article_path: Path,
     translated_root: Path,
+    channel: str,
     *,
     override: str | None,
 ) -> str:
@@ -114,7 +116,7 @@ def resolve_title(
         return override.strip()
 
     try:
-        ai_title = generate_ai_title(article_path, translated_root)
+        ai_title = generate_ai_title(article_path, translated_root, channel)
         if ai_title:
             return ai_title
     except Exception as exc:  # pragma: no cover
@@ -127,23 +129,26 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    translated_root: Path = args.translated_root
-    raw_root: Path = args.raw_root
+    app_config = load_config()
+    channel = args.channel
+    translated_root: Path = args.translated_root or app_config.paths.translated_for(channel)
+    raw_root: Path = args.raw_root or app_config.paths.raw_for(channel)
 
-    article_path = args.article or select_article(translated_root, args.channel)
+    article_path = args.article or select_article(translated_root)
     if not article_path.is_file():
         raise SystemExit(f"指定的文章不存在: {article_path}")
 
-    images = collect_images(raw_root, args.channel)
+    images = collect_images(raw_root)
 
     title = resolve_title(
         article_path,
         translated_root,
+        channel,
         override=args.title,
     )
 
     metadata = ArticleMetadata(
-        channel=args.channel,
+        channel=channel,
         article_path=article_path,
         title=title,
         author=args.author,
@@ -159,7 +164,7 @@ def main() -> None:
     draft_client = WeChatDraftClient(credential_store)
     workflow = WeChatArticleWorkflow(media_uploader, draft_client)
 
-    bundle = ContentBundle(channel=args.channel, article_path=article_path, images=images)
+    bundle = ContentBundle(channel=channel, article_path=article_path, images=images)
 
     try:
         result = workflow.publish(bundle, metadata, dry_run=args.dry_run)

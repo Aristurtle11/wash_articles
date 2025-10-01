@@ -30,17 +30,24 @@ class FormattingConfig:
     thinking_budget: int | None = None
 
     @classmethod
-    def from_app_config(cls) -> "FormattingConfig":
-        config = load_config()
-        fmt = config.formatting
+    def from_app_config(cls, *, channel: str | None = None) -> "FormattingConfig":
+        app_config = load_config()
+        stage = app_config.formatting_for(channel) if channel is not None else app_config.formatting
+
+        prompt_source = stage.prompt_path or stage.prompt_fallback or (app_config.paths.data_dir / "prompts" / "formatting_prompt.txt")
+        output_source = stage.output_dir or stage.output_dir_fallback or app_config.paths.formatted_for(channel)
+        input_glob = stage.input_glob or str(app_config.paths.translated_for(channel) / "**/*.translated.txt")
+        timeout = stage.timeout or 30
+
         return cls(
-            model=fmt.model,
-            prompt_path=fmt.prompt_path,
-            output_dir=fmt.output_dir,
-            input_glob=fmt.input_glob,
-            timeout=fmt.timeout,
-            thinking_budget=fmt.thinking_budget,
+            model=stage.model or "",
+            prompt_path=Path(prompt_source),
+            output_dir=Path(output_source),
+            input_glob=input_glob,
+            timeout=timeout,
+            thinking_budget=stage.thinking_budget,
         )
+
 
 
 class Formatter:

@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.platforms import ContentBundle
 from src.platforms.wechat import WeChatApiClient, WeChatCredentialStore, WeChatMediaUploader, WeChatApiError
+from src.settings import load_config
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,9 +20,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--channel", required=True, help="Channel/spider identifier, e.g., realtor")
     parser.add_argument(
         "--raw-root",
-        default=Path("data/raw"),
         type=Path,
-        help="Root directory containing raw assets",
+        help="Override raw asset root (defaults to data/<channel>/raw)",
     )
     parser.add_argument(
         "--token-cache",
@@ -37,8 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def locate_images(raw_root: Path, channel: str) -> list[Path]:
-    image_dir = raw_root / channel / "images"
+def locate_images(raw_root: Path) -> list[Path]:
+    image_dir = raw_root / "images"
     if not image_dir.is_dir():
         raise FileNotFoundError(f"未找到图片目录: {image_dir}")
     candidates = sorted(
@@ -55,7 +55,9 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    image_paths = locate_images(args.raw_root, args.channel)
+    app_config = load_config()
+    raw_root = args.raw_root or app_config.paths.raw_for(args.channel)
+    image_paths = locate_images(raw_root)
 
     api_client = WeChatApiClient()
     store = WeChatCredentialStore(token_cache_path=args.token_cache, api_client=api_client)

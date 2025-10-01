@@ -37,7 +37,7 @@ def run(argv: Sequence[str] | None = None) -> None:
     spider_config = config.spiders.get(spider_name, {})
     pipelines = [
         TransformPipeline(),
-        DataSaverPipeline(config.paths.processed_dir, filename=f"{spider_name}.jsonl"),
+        DataSaverPipeline(config.paths.artifacts_for(spider_name), filename=f"{spider_name}.jsonl"),
     ]
 
     spider = SpiderClass(client, pipelines, config=spider_config)
