@@ -50,7 +50,7 @@
 - [x] 统一 Prompt 管理：按阶段分目录存放模板，支持多模板加载。
 - [x] 构建流水线编排：新增 `src/app/pipeline.py` 描述 `Fetch→Translate→Format→Title→Publish` 的依赖关系。
 - [x] CLI 统一入口：提供 `pipeline run/resume/inspect/clean` 命令，输出结构化日志。
-- [ ] 模块化微信发布：拆分 `WeChatArticleWorkflow`，分离图片同步、HTML 注入、payload 构造逻辑。
+- [x] 模块化微信发布：拆分 `WeChatArticleWorkflow`，分离图片同步、HTML 注入、payload 构造逻辑。
 - [ ] 更新发布脚本：精简 `publish_wechat_article.py`，完善或移除 `publish_content.py`。
 - [ ] 引入 lint/typing：配置 `ruff`、`mypy` 等工具，并整合至 CI / 辅助脚本。
 - [ ] 端到端 dry-run 测试：新增完整流程测试，覆盖占位符替换、标题回退、payload 校验。
