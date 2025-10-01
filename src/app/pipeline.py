@@ -232,13 +232,16 @@ def _collect_images(raw_root: Path) -> list[Path]:
 
 
 def _load_title(article_path: Path, generated: list[Path]) -> str:
-    expected_name = article_path.name.replace(".translated.txt", ".title.txt")
-    title_path = article_path.with_name(expected_name)
+    expected_name = article_path.name.replace(".translated.txt", ".translated.title.txt")
+    # Look for the title file in the same directory structure as the article
+    title_path = article_path.parent.parent / "titles" / expected_name
     if title_path.exists():
         return title_path.read_text(encoding="utf-8").strip()
+    # Fallback to searching the list of generated files
     for candidate in generated:
         if candidate.name == expected_name:
             return candidate.read_text(encoding="utf-8").strip()
+    # Fallback to deriving from filename if no title file is found
     return article_path.stem.replace("_", " ").replace("-", " ").strip().title()
 
 
