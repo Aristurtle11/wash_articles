@@ -16,7 +16,7 @@ from ..utils.logging import get_logger
 LOGGER = get_logger(__name__)
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class BaseAIConfig:
     """Configuration shared by AI generators."""
 

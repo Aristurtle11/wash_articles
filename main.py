@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from src.app.runner import run
+from src.app.cli import main
 
 
 if __name__ == "__main__":
-    run()
+    raise SystemExit(main())

@@ -15,7 +15,7 @@ LOGGER = get_logger(__name__)
 
 
 def run(argv: Sequence[str] | None = None) -> None:
-    configure_logging()
+    configure_logging(structured=None)
     parser = argparse.ArgumentParser(prog="wash", description="wash_articles crawler runner")
     parser.add_argument("--spider", help="Spider name to execute")
     parser.add_argument("--config", help="Path to the config file", default=None)

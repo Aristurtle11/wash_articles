@@ -71,26 +71,71 @@ class PipelineStep:
     depends_on: tuple[str, ...] = ()
 
 
+@dataclass(slots=True)
+class PipelineHooks:
+    """Optional callbacks invoked around step execution."""
+
+    before_step: Callable[[str, PipelineContext], None] | None = None
+    after_step: Callable[[str, PipelineContext], None] | None = None
+    on_error: Callable[[str, PipelineContext, BaseException], None] | None = None
+
+
 class PipelineRunner:
     """Executes registered pipeline steps respecting dependencies."""
 
     def __init__(self, steps: Sequence[PipelineStep]) -> None:
-        self._step_map: Dict[str, PipelineStep] = {step.name: step for step in steps}
-        self._order = [step.name for step in steps]
+        self._steps: List[PipelineStep] = list(steps)
+        self._step_map: Dict[str, PipelineStep] = {step.name: step for step in self._steps}
+        self._order = [step.name for step in self._steps]
 
-    def run(self, context: PipelineContext, *, only: Iterable[str] | None = None) -> None:
+    @property
+    def steps(self) -> Sequence[PipelineStep]:
+        return tuple(self._steps)
+
+    @property
+    def step_names(self) -> Sequence[str]:
+        return tuple(self._order)
+
+    def run(
+        self,
+        context: PipelineContext,
+        *,
+        only: Iterable[str] | None = None,
+        completed: Iterable[str] | None = None,
+        hooks: PipelineHooks | None = None,
+    ) -> None:
         selected = set(only) if only else None
-        executed: set[str] = set()
+        executed: set[str] = set(completed or [])
         for name in self._order:
+            if name in executed:
+                continue
             if selected is not None and name not in selected:
                 continue
             step = self._step_map[name]
             if any(dep not in executed for dep in step.depends_on):
                 missing = ", ".join(dep for dep in step.depends_on if dep not in executed)
                 raise RuntimeError(f"Step '{name}' depends on missing steps: {missing}")
-            LOGGER.info("Running pipeline step: %s", name)
-            step.handler(context)
-            executed.add(name)
+            LOGGER.info("Running pipeline step: %s", name, extra={"event": "pipeline.step", "status": "started", "step": name})
+            if hooks and hooks.before_step:
+                hooks.before_step(name, context)
+            try:
+                step.handler(context)
+            except BaseException as exc:  # pragma: no cover - propagation tested via CLI
+                LOGGER.error(
+                    "Pipeline step failed: %s", name, extra={"event": "pipeline.step", "status": "failed", "step": name}
+                )
+                if hooks and hooks.on_error:
+                    hooks.on_error(name, context, exc)
+                raise
+            else:
+                executed.add(name)
+                if hooks and hooks.after_step:
+                    hooks.after_step(name, context)
+                LOGGER.info(
+                    "Pipeline step completed: %s",
+                    name,
+                    extra={"event": "pipeline.step", "status": "completed", "step": name},
+                )
 
 
 def _run_fetch(context: PipelineContext) -> None:
@@ -224,6 +269,7 @@ __all__ = [
     "PipelineContext",
     "PipelineRunner",
     "PipelineStep",
+    "PipelineHooks",
     "DEFAULT_STEPS",
     "build_default_runner",
 ]
