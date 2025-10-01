@@ -42,6 +42,7 @@ class AppConfig:
     paths: PathSettings
     ai: "AISettings"
     formatting: "FormattingSettings"
+    title: "TitleSettings"
     spiders: dict[str, dict[str, str]]
 
 
@@ -58,6 +59,16 @@ class AISettings:
 
 @dataclass(slots=True)
 class FormattingSettings:
+    model: str
+    prompt_path: Path
+    output_dir: Path
+    input_glob: str
+    timeout: float
+    thinking_budget: int | None
+
+
+@dataclass(slots=True)
+class TitleSettings:
     model: str
     prompt_path: Path
     output_dir: Path
@@ -100,6 +111,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
     http_section = parser["http"] if parser.has_section("http") else {}
     ai_section = parser["ai"] if parser.has_section("ai") else {}
     formatting_section = parser["formatting"] if parser.has_section("formatting") else {}
+    title_section = parser["title"] if parser.has_section("title") else {}
 
     data_dir = _to_path(paths_section.get("data_dir"), fallback=PROJECT_ROOT / "data")
     raw_dir = _to_path(paths_section.get("raw_dir"), fallback=data_dir / "raw")
@@ -160,6 +172,27 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         ),
     )
 
+    title_settings = TitleSettings(
+        model=title_section.get("model", formatting_settings.model),
+        prompt_path=_to_path(
+            title_section.get("prompt_path"),
+            fallback=PROJECT_ROOT / "prompts" / "title_prompt.txt",
+        ),
+        output_dir=_to_path(
+            title_section.get("output_dir"),
+            fallback=formatting_settings.output_dir,
+        ),
+        input_glob=title_section.get(
+            "input_glob", formatting_settings.input_glob
+        ),
+        timeout=float(title_section.get("timeout", formatting_settings.timeout)),
+        thinking_budget=(
+            int(title_section.get("thinking_budget"))
+            if title_section.get("thinking_budget") not in (None, "")
+            else formatting_settings.thinking_budget
+        ),
+    )
+
     spiders: dict[str, dict[str, str]] = {}
     for section in parser.sections():
         if section.lower().startswith("spider:"):
@@ -179,6 +212,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         ),
         ai=ai_settings,
         formatting=formatting_settings,
+        title=title_settings,
         spiders=spiders,
     )
     return config

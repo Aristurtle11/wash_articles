@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src.ai.title_generator import TitleGenerator
 from src.platforms import ContentBundle
 from src.platforms.wechat import (
     WeChatApiClient,
@@ -95,6 +96,33 @@ def derive_title_from_path(article_path: Path) -> str:
     return stem.replace("_", " ").replace("-", " ").strip().title()
 
 
+def generate_ai_title(article_path: Path, translated_root: Path) -> str:
+    """Generate or reuse an AI-crafted Chinese title for the article."""
+
+    generator = TitleGenerator.from_config(relative_to=translated_root)
+    title_path = generator.generate_title_file(article_path)
+    return title_path.read_text(encoding="utf-8").strip()
+
+
+def resolve_title(
+    article_path: Path,
+    translated_root: Path,
+    *,
+    override: str | None,
+) -> str:
+    if override:
+        return override.strip()
+
+    try:
+        ai_title = generate_ai_title(article_path, translated_root)
+        if ai_title:
+            return ai_title
+    except Exception as exc:  # pragma: no cover
+        print(f"AI 标题生成失败，将使用默认标题: {exc}", file=sys.stderr)
+
+    return derive_title_from_path(article_path)
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -108,7 +136,11 @@ def main() -> None:
 
     images = collect_images(raw_root, args.channel)
 
-    title = args.title or derive_title_from_path(article_path)
+    title = resolve_title(
+        article_path,
+        translated_root,
+        override=args.title,
+    )
 
     metadata = ArticleMetadata(
         channel=args.channel,
