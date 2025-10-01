@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.platforms import ContentBundle, MediaUploadResult
+from src.services.wechat_components import ContentBuilder, PayloadBuilder
 from src.services.wechat_workflow import ArticleMetadata, WeChatArticleWorkflow
 
 
@@ -53,8 +54,8 @@ def test_prepare_markdown_updates_placeholders_and_persists(tmp_path: Path) -> N
         _media_result(image2, "http://example.com/2.jpg", 2),
     ]
 
-    workflow = WeChatArticleWorkflow(StubUploader(uploads), StubDraftClient())
-    content = workflow._prepare_markdown(article_path, uploads, persist=True)
+    builder = ContentBuilder()
+    content = builder._prepare_markdown(article_path, uploads, persist=True)
 
     assert "![Image 1](http://example.com/1.jpg)" in content
     assert content.count("![Image 1]") == 1
@@ -65,7 +66,7 @@ def test_prepare_markdown_updates_placeholders_and_persists(tmp_path: Path) -> N
         _media_result(image1, "http://example.com/new1.jpg", 1),
         _media_result(image2, "http://example.com/new2.jpg", 2),
     ]
-    content_again = workflow._prepare_markdown(article_path, updated_uploads, persist=True)
+    content_again = builder._prepare_markdown(article_path, updated_uploads, persist=True)
     assert "http://example.com/new1.jpg" in content_again
     assert content_again.count("![Image 1]") == 1
 
@@ -78,7 +79,12 @@ def test_publish_dry_run_skips_network_and_preserves_file(tmp_path: Path) -> Non
 
     uploader = StubUploader(fail=True)
     draft_client = StubDraftClient()
-    workflow = WeChatArticleWorkflow(uploader, draft_client)
+    workflow = WeChatArticleWorkflow(
+        uploader,
+        draft_client,
+        ContentBuilder(),
+        PayloadBuilder(),
+    )
 
     bundle = ContentBundle(channel="demo", article_path=article_path, images=[image_path])
     metadata = ArticleMetadata(channel="demo", article_path=article_path, title="Demo Title")
@@ -105,8 +111,8 @@ def test_build_html_content_prefers_formatted_file(tmp_path: Path) -> None:
     image_path.write_bytes(b"")
     upload = _media_result(image_path, "http://example.com/1.jpg", 1)
 
-    workflow = WeChatArticleWorkflow(StubUploader([upload]), StubDraftClient())
-    html = workflow._build_html_content(article_path, [upload], persist=False)
+    builder = ContentBuilder()
+    html = builder.build(article_path, [upload], persist=False)
 
     assert "http://example.com/1.jpg" in html
     assert formatted_path.read_text(encoding="utf-8").count("http://example.com/1.jpg") == 0

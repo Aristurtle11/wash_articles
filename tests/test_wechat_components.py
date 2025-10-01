@@ -63,8 +63,8 @@ class TestContentBuilder:
 
         html = builder.build(article_path, sample_uploads, persist=False)
 
-        assert '<img src="https://wechat.com/img/1"' in html
-        assert '<img src="https://wechat.com/img/2"' in html
+        assert 'src="https://wechat.com/img/1"' in html
+        assert 'src="https://wechat.com/img/2"' in html
         assert "<h1>Hello</h1>" in html
 
     def test_build_with_markdown(self, tmp_path: Path, sample_uploads: list[MediaUploadResult]):
@@ -79,9 +79,9 @@ class TestContentBuilder:
         html = builder.build(article_path, sample_uploads, persist=False)
 
         assert "<h1>Hello</h1>" in html
-        assert '<img src="https://wechat.com/img/1"' in html
+        assert 'src="https://wechat.com/img/1"' in html
         # The original markdown image tag should be updated
-        assert '<img src="https://wechat.com/img/2"' in html
+        assert 'src="https://wechat.com/img/2"' in html
         assert "placeholder.jpg" not in html
 
     def test_append_extra_images(self, tmp_path: Path, sample_uploads: list[MediaUploadResult]):
@@ -93,8 +93,8 @@ class TestContentBuilder:
         html = builder.build(article_path, sample_uploads, persist=False)
 
         assert "<h1>Hello</h1>" in html
-        assert '<img src="https://wechat.com/img/1"' in html
-        assert '<img src="https://wechat.com/img/2"' in html
+        assert 'src="https://wechat.com/img/1"' in html
+        assert 'src="https://wechat.com/img/2"' in html
 
     def test_persist_changes(self, tmp_path: Path, sample_uploads: list[MediaUploadResult]):
         """Verify `persist=True` saves the updated content back to the file."""

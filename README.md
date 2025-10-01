@@ -94,7 +94,7 @@ python scripts/upload_wechat_image.py --channel realtor
 ## 常用辅助脚本
 
 - `scripts/clean_project.sh`：清理缓存与数据产物。
-- `scripts/publish_content.py`：后续可扩展为多平台发布入口。
+- `scripts/lint.sh`：统一执行 Ruff 检查与 mypy 类型校验。
 - `scripts/translate_texts.py --help`、`scripts/publish_wechat_article.py --help` 获取详尽参数说明。
 
 ## 目录速览

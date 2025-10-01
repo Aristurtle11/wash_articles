@@ -100,8 +100,20 @@ class ContentBuilder:
         if matches:
             updated = self._replace_placeholder_matches(text, matches, uploads_sorted)
             updated = self._append_extra_images(updated, uploads_sorted, start_index=len(matches))
+            updated, replaced_count = self._replace_markdown_images(updated, uploads_sorted)
+            changed = updated != text or replaced_count > 0
+            return updated, changed
+
+        updated, count = self._replace_markdown_images(text, uploads_sorted)
+        if count:
             return updated, updated != text
 
+        updated = self._append_extra_images(text, uploads_sorted, start_index=0)
+        return updated, updated != text
+
+    def _replace_markdown_images(
+        self, text: str, uploads_sorted: Sequence[MediaUploadResult]
+    ) -> tuple[str, int]:
         def markdown_replacement(match: re.Match[str]) -> str:
             index = int(match.group(1))
             try:
@@ -111,12 +123,7 @@ class ContentBuilder:
             alt = f"Image {index}"
             return f"![{alt}]({upload.remote_url})"
 
-        updated, count = _MARKDOWN_IMAGE_PATTERN.subn(markdown_replacement, text)
-        if count:
-            return updated, updated != text
-
-        updated = self._append_extra_images(text, uploads_sorted, start_index=0)
-        return updated, updated != text
+        return _MARKDOWN_IMAGE_PATTERN.subn(markdown_replacement, text)
 
     def _replace_placeholder_matches(
         self,
