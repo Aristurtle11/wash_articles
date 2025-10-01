@@ -49,7 +49,12 @@ def main() -> None:
     configure_logging()
     args = parse_args()
     app_config = load_config()
-    channel = args.channel or app_config.pipeline.default_channel or app_config.paths.default_channel or app_config.default_spider
+    channel = (
+        args.channel
+        or app_config.pipeline.default_channel
+        or app_config.paths.default_channel
+        or app_config.default_spider
+    )
     cfg = TranslationConfig.from_app_config(channel=channel)
 
     if args.prompt:

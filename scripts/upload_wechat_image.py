@@ -11,12 +11,19 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.platforms import ContentBundle
-from src.platforms.wechat import WeChatApiClient, WeChatCredentialStore, WeChatMediaUploader, WeChatApiError
+from src.platforms.wechat import (
+    WeChatApiClient,
+    WeChatCredentialStore,
+    WeChatMediaUploader,
+    WeChatApiError,
+)
 from src.settings import load_config
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Upload image_001.jpg to WeChat as permanent material")
+    parser = argparse.ArgumentParser(
+        description="Upload image_001.jpg to WeChat as permanent material"
+    )
     parser.add_argument("--channel", required=True, help="Channel/spider identifier, e.g., realtor")
     parser.add_argument(
         "--raw-root",
@@ -42,9 +49,7 @@ def locate_images(raw_root: Path) -> list[Path]:
     if not image_dir.is_dir():
         raise FileNotFoundError(f"未找到图片目录: {image_dir}")
     candidates = sorted(
-        p
-        for p in image_dir.iterdir()
-        if p.is_file() and p.name.lower().startswith("image_")
+        p for p in image_dir.iterdir() if p.is_file() and p.name.lower().startswith("image_")
     )
     if not candidates:
         raise FileNotFoundError(f"目录 {image_dir} 中未找到任何图片文件")

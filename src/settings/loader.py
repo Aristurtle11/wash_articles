@@ -104,6 +104,7 @@ class StageSettings:
     output_dir_fallback: Path | None = None
     input_glob_fallback: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+
     def for_channel(self, channel: str | None) -> "StageSettings":
         """Return a stage with paths resolved for the given channel."""
 
@@ -112,18 +113,30 @@ class StageSettings:
 
         prompt_path = self.prompt_path
         if self.prompt_template and "{channel}" in self.prompt_template:
-            fallback = self.prompt_fallback or self.prompt_path or PROJECT_ROOT / "prompts" / f"{self.name}.txt"
-            prompt_path = _resolve_template_to_path(self.prompt_template, channel=channel, fallback=fallback)
+            fallback = (
+                self.prompt_fallback
+                or self.prompt_path
+                or PROJECT_ROOT / "prompts" / f"{self.name}.txt"
+            )
+            prompt_path = _resolve_template_to_path(
+                self.prompt_template, channel=channel, fallback=fallback
+            )
 
         output_dir = self.output_dir
         if self.output_dir_template and "{channel}" in self.output_dir_template:
-            fallback = self.output_dir_fallback or self.output_dir or PROJECT_ROOT / "data" / self.name
-            output_dir = _resolve_template_to_path(self.output_dir_template, channel=channel, fallback=fallback)
+            fallback = (
+                self.output_dir_fallback or self.output_dir or PROJECT_ROOT / "data" / self.name
+            )
+            output_dir = _resolve_template_to_path(
+                self.output_dir_template, channel=channel, fallback=fallback
+            )
 
         input_glob = self.input_glob
         if self.input_glob_template and "{channel}" in self.input_glob_template:
             fallback = self.input_glob_fallback or self.input_glob
-            input_glob = _resolve_template_to_glob(self.input_glob_template, channel=channel, fallback=fallback)
+            input_glob = _resolve_template_to_glob(
+                self.input_glob_template, channel=channel, fallback=fallback
+            )
 
         return StageSettings(
             name=self.name,
@@ -144,8 +157,6 @@ class StageSettings:
             extra=self.extra.copy(),
         )
 
-
-
     def as_dict(self) -> dict[str, Any]:
         """Return a serialisable view of the stage."""
 
@@ -163,7 +174,9 @@ class StageSettings:
             "output_dir_template": self.output_dir_template,
             "input_glob_template": self.input_glob_template,
             "prompt_fallback": str(self.prompt_fallback) if self.prompt_fallback else None,
-            "output_dir_fallback": str(self.output_dir_fallback) if self.output_dir_fallback else None,
+            "output_dir_fallback": str(self.output_dir_fallback)
+            if self.output_dir_fallback
+            else None,
             "input_glob_fallback": self.input_glob_fallback,
         }
         data.update(self.extra)
@@ -278,7 +291,9 @@ def _resolve_template_to_path(template: str, *, channel: str | None, fallback: P
     return _to_path(target, fallback=fallback)
 
 
-def _resolve_template_to_glob(template: str, *, channel: str | None, fallback: str | None) -> str | None:
+def _resolve_template_to_glob(
+    template: str, *, channel: str | None, fallback: str | None
+) -> str | None:
     if "{channel}" in template:
         if channel:
             return template.format(channel=channel)
@@ -296,11 +311,21 @@ def _build_stage(name: str, data: dict[str, Any], *, default_channel: str | None
 
     prompt_template = _as_template(data.get("prompt_path"), prompt_fallback)
     output_template = _as_template(data.get("output_dir"), output_fallback)
-    input_template = _as_template(data.get("input_glob"), input_fallback or "") if data.get("input_glob") is not None else (input_fallback or "")
+    input_template = (
+        _as_template(data.get("input_glob"), input_fallback or "")
+        if data.get("input_glob") is not None
+        else (input_fallback or "")
+    )
 
-    prompt_path = _resolve_template_to_path(prompt_template, channel=default_channel, fallback=prompt_fallback)
-    output_dir = _resolve_template_to_path(output_template, channel=default_channel, fallback=output_fallback)
-    input_glob = _resolve_template_to_glob(str(input_template), channel=default_channel, fallback=input_fallback)
+    prompt_path = _resolve_template_to_path(
+        prompt_template, channel=default_channel, fallback=prompt_fallback
+    )
+    output_dir = _resolve_template_to_path(
+        output_template, channel=default_channel, fallback=output_fallback
+    )
+    input_glob = _resolve_template_to_glob(
+        str(input_template), channel=default_channel, fallback=input_fallback
+    )
 
     timeout = float(data.get("timeout", 30)) if data.get("timeout") is not None else None
     thinking_raw = data.get("thinking_budget")
@@ -347,7 +372,6 @@ def _build_stage(name: str, data: dict[str, Any], *, default_channel: str | None
     )
 
 
-
 def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
     path = _config_path(config_path)
     data = _load_toml(path)
@@ -367,8 +391,12 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
     default_channel = configured_channel or app_section.get("default_spider")
     channel_root = data_dir / (default_channel or "default")
     raw_dir = _to_path(paths_section.get("raw_dir"), fallback=channel_root / "raw")
-    translated_dir = _to_path(paths_section.get("translated_dir"), fallback=channel_root / "translated")
-    formatted_dir = _to_path(paths_section.get("formatted_dir"), fallback=channel_root / "formatted")
+    translated_dir = _to_path(
+        paths_section.get("translated_dir"), fallback=channel_root / "translated"
+    )
+    formatted_dir = _to_path(
+        paths_section.get("formatted_dir"), fallback=channel_root / "formatted"
+    )
     titles_dir = _to_path(paths_section.get("titles_dir"), fallback=channel_root / "titles")
     artifacts_value = paths_section.get("artifacts_dir") or paths_section.get("processed_dir")
     artifacts_dir = _to_path(artifacts_value, fallback=channel_root / "artifacts")
@@ -397,7 +425,10 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
     )
 
     default_channel = pipeline_section.get("default_channel")
-    stages = {name: _build_stage(name, stage_data, default_channel=default_channel) for name, stage_data in stages_section.items()}
+    stages = {
+        name: _build_stage(name, stage_data, default_channel=default_channel)
+        for name, stage_data in stages_section.items()
+    }
 
     pipeline_settings = PipelineSettings(
         default_channel=default_channel,

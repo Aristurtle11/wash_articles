@@ -44,11 +44,7 @@ class WeChatMediaUploader(MediaUploader):
 
     def _sorted_images(self, images: Sequence[Path]) -> Sequence[Path]:
         return sorted(
-            (
-                img
-                for img in images
-                if img.is_file() and img.name.lower().startswith("image_")
-            ),
+            (img for img in images if img.is_file() and img.name.lower().startswith("image_")),
             key=lambda p: p.name,
         )
 
@@ -105,6 +101,8 @@ class WeChatMediaUploader(MediaUploader):
                 details={"path": str(image), "response": data},
             )
 
-        return MediaUploadResult(local_path=image, remote_url=remote_url, order=order, media_id=media_id), token
+        return MediaUploadResult(
+            local_path=image, remote_url=remote_url, order=order, media_id=media_id
+        ), token
 
     _TOKEN_INVALID_CODES = {40001, 40014, 42001}

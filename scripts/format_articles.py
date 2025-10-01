@@ -38,9 +38,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--channel", help="Logical channel (defaults to pipeline.default_channel)")
     parser.add_argument("--timeout", type=float, help="Request timeout in seconds")
     parser.add_argument("--relative-to", help="Preserve structure relative to this base path")
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing formatted files")
+    parser.add_argument(
+        "--overwrite", action="store_true", help="Overwrite existing formatted files"
+    )
     parser.add_argument("--api-key", help="Gemini API key (falls back to GEMINI_API_KEY env var)")
-    parser.add_argument("--thinking-budget", type=int, help="Enable Gemini thinking mode with given budget")
+    parser.add_argument(
+        "--thinking-budget", type=int, help="Enable Gemini thinking mode with given budget"
+    )
     return parser.parse_args()
 
 
@@ -48,7 +52,12 @@ def main() -> None:
     configure_logging()
     args = parse_args()
     app_config = load_config()  # ensure config.toml is validated and directories created
-    channel = args.channel or app_config.pipeline.default_channel or app_config.paths.default_channel or app_config.default_spider
+    channel = (
+        args.channel
+        or app_config.pipeline.default_channel
+        or app_config.paths.default_channel
+        or app_config.default_spider
+    )
     cfg = FormattingConfig.from_app_config(channel=channel)
 
     if args.prompt:

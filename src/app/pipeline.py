@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Sequence
+from typing import Callable, Dict, Iterable, List, Sequence, cast
 
 from ..ai.formatter import Formatter, FormattingConfig
 from ..ai.title_generator import TitleConfig, TitleGenerator
@@ -42,19 +42,19 @@ class PipelineContext:
 
     @property
     def default_raw_root(self) -> Path:
-        return self.config.paths.raw_for(self.channel)
+        return cast(Path, self.config.paths.raw_for(self.channel))
 
     @property
     def translated_root(self) -> Path:
-        return self.config.paths.translated_for(self.channel)
+        return cast(Path, self.config.paths.translated_for(self.channel))
 
     @property
     def formatted_root(self) -> Path:
-        return self.config.paths.formatted_for(self.channel)
+        return cast(Path, self.config.paths.formatted_for(self.channel))
 
     @property
     def titles_root(self) -> Path:
-        return self.config.paths.titles_for(self.channel)
+        return cast(Path, self.config.paths.titles_for(self.channel))
 
     def translation_config(self) -> TranslationConfig:
         return TranslationConfig.from_app_config(channel=self.channel, app_config=self.config)
@@ -117,14 +117,20 @@ class PipelineRunner:
             if any(dep not in executed for dep in step.depends_on):
                 missing = ", ".join(dep for dep in step.depends_on if dep not in executed)
                 raise RuntimeError(f"Step '{name}' depends on missing steps: {missing}")
-            LOGGER.info("Running pipeline step: %s", name, extra={"event": "pipeline.step", "status": "started", "step": name})
+            LOGGER.info(
+                "Running pipeline step: %s",
+                name,
+                extra={"event": "pipeline.step", "status": "started", "step": name},
+            )
             if hooks and hooks.before_step:
                 hooks.before_step(name, context)
             try:
                 step.handler(context)
             except BaseException as exc:  # pragma: no cover - propagation tested via CLI
                 LOGGER.error(
-                    "Pipeline step failed: %s", name, extra={"event": "pipeline.step", "status": "failed", "step": name}
+                    "Pipeline step failed: %s",
+                    name,
+                    extra={"event": "pipeline.step", "status": "failed", "step": name},
                 )
                 if hooks and hooks.on_error:
                     hooks.on_error(name, context, exc)
@@ -188,7 +194,12 @@ def _run_publish(context: PipelineContext) -> None:
     raw_root = context.default_raw_root
     images = _collect_images(raw_root)
 
-    title_text = _load_title(article_path, context.title_files)
+    title_text = _load_title(
+        article_path,
+        context.title_files,
+        context.titles_root,
+        translated_root,
+    )
 
     metadata = ArticleMetadata(
         channel=context.channel,
@@ -202,7 +213,7 @@ def _run_publish(context: PipelineContext) -> None:
     credential_store = WeChatCredentialStore(token_cache_path=token_path, api_client=api_client)
     media_uploader = WeChatMediaUploader(credential_store)
     draft_client = WeChatDraftClient(credential_store)
-    
+
     content_builder = ContentBuilder()
     payload_builder = PayloadBuilder()
     workflow = WeChatArticleWorkflow(
@@ -235,23 +246,35 @@ def _collect_images(raw_root: Path) -> list[Path]:
     image_dir = raw_root / "images"
     if not image_dir.is_dir():
         raise FileNotFoundError(f"未找到图片目录: {image_dir}")
-    images = sorted(p for p in image_dir.iterdir() if p.is_file() and p.name.lower().startswith("image_"))
+    images = sorted(
+        p for p in image_dir.iterdir() if p.is_file() and p.name.lower().startswith("image_")
+    )
     if not images:
         raise FileNotFoundError(f"目录 {image_dir} 中未找到任何 image_* 文件")
     return images
 
 
-def _load_title(article_path: Path, generated: list[Path]) -> str:
-    expected_name = article_path.name.replace(".translated.txt", ".translated.title.txt")
-    # Look for the title file in the same directory structure as the article
-    title_path = article_path.parent.parent / "titles" / expected_name
-    if title_path.exists():
-        return title_path.read_text(encoding="utf-8").strip()
-    # Fallback to searching the list of generated files
+def _load_title(
+    article_path: Path,
+    generated: list[Path],
+    titles_root: Path,
+    translated_root: Path,
+) -> str:
+    expected_name = article_path.name.replace(".translated.txt", ".title.txt")
+    try:
+        relative_dir = article_path.relative_to(translated_root).parent
+    except ValueError:
+        relative_dir = Path()
+
+    title_candidate = titles_root / relative_dir / expected_name
+
+    if title_candidate.exists():
+        return title_candidate.read_text(encoding="utf-8").strip()
+
     for candidate in generated:
         if candidate.name == expected_name:
             return candidate.read_text(encoding="utf-8").strip()
-    # Fallback to deriving from filename if no title file is found
+
     return article_path.stem.replace("_", " ").replace("-", " ").strip().title()
 
 
@@ -264,14 +287,19 @@ DEFAULT_STEPS = [
 ]
 
 
-def build_default_runner(config: AppConfig | None = None, *, channel: str | None = None, **options: object) -> tuple[PipelineRunner, PipelineContext]:
+def build_default_runner(
+    config: AppConfig | None = None, *, channel: str | None = None, **options: object
+) -> tuple[PipelineRunner, PipelineContext]:
     app_config = config or load_config()
     if not channel:
         channel = app_config.pipeline.default_channel or app_config.default_spider
+    raw_api_key = options.get("api_key")
+    api_key = raw_api_key if isinstance(raw_api_key, str) else None
+
     ctx = PipelineContext(
         config=app_config,
         channel=channel,
-        api_key=options.get("api_key"),
+        api_key=api_key,
         overwrite=bool(options.get("overwrite", False)),
         dry_run=bool(options.get("dry_run", False)),
     )

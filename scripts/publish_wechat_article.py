@@ -31,12 +31,8 @@ from src.services.wechat_workflow import WeChatArticleWorkflow
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Upload images and publish a WeChat article draft"
-    )
-    parser.add_argument(
-        "--channel", required=True, help="Channel/spider identifier, e.g., realtor"
-    )
+    parser = argparse.ArgumentParser(description="Upload images and publish a WeChat article draft")
+    parser.add_argument("--channel", required=True, help="Channel/spider identifier, e.g., realtor")
     parser.add_argument(
         "--article",
         type=Path,

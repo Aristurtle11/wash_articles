@@ -92,7 +92,7 @@ class ContentBuilder:
     ) -> tuple[str, bool]:
         if _BRACKET_PLACEHOLDER_PATTERN.search(text):
             text = _BRACKET_PLACEHOLDER_PATTERN.sub(
-                lambda match: f'{{{{[Image {match.group(1)}]}}}}', text
+                lambda match: f"{{{{[Image {match.group(1)}]}}}}", text
             )
 
         matches = list(_PLACEHOLDER_PATTERN.finditer(text))
@@ -191,9 +191,7 @@ class ContentBuilder:
 
         if len(uploads_sorted) > replaced_count:
             extras = uploads_sorted[replaced_count:]
-            extra_blocks = "\n".join(
-                self._render_image_block(item, item.order) for item in extras
-            )
+            extra_blocks = "\n".join(self._render_image_block(item, item.order) for item in extras)
             insertion = f"\n{extra_blocks}\n"
             if "</body>" in updated:
                 updated = updated.replace("</body>", f"{insertion}</body>")
@@ -207,7 +205,7 @@ class ContentBuilder:
             '<p style="text-align:center; margin:1.5em 0;">'
             f'<img src="{upload.remote_url}" alt="{alt}" '
             'style="max-width:100%; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.15);" />'
-            '</p>'
+            "</p>"
         )
 
     def _markdown_to_html(self, markdown_text: str) -> str:

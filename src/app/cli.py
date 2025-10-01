@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Iterable, Sequence, cast
 
 from ..settings import AppConfig, load_config
 from ..utils.logging import configure_logging, get_logger
@@ -28,7 +28,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Using legacy spider flag; consider 'wash spider run --spider <name>'",
             extra={"event": "cli.deprecated", "flag": "--spider"},
         )
-        run_spider(["--spider", args.legacy_spider, *(args.config and ["--config", args.config] or [])])
+        run_spider(
+            ["--spider", args.legacy_spider, *(args.config and ["--config", args.config] or [])]
+        )
         return 0
 
     handler: Callable[[argparse.Namespace], int] | None = getattr(args, "handler", None)
@@ -65,7 +67,9 @@ def _add_spider_commands(subparsers: argparse._SubParsersAction[argparse.Argumen
     spider_subparsers = spider_parser.add_subparsers(dest="spider_command", required=True)
 
     run_parser = spider_subparsers.add_parser("run", help="Execute a spider and emit JSONL output")
-    run_parser.add_argument("--spider", required=False, help="Spider name; defaults to config default")
+    run_parser.add_argument(
+        "--spider", required=False, help="Spider name; defaults to config default"
+    )
     run_parser.set_defaults(handler=_handle_spider_run)
 
 
@@ -100,7 +104,9 @@ def _add_pipeline_commands(subparsers: argparse._SubParsersAction[argparse.Argum
     )
     run_parser.set_defaults(handler=_handle_pipeline_run)
 
-    resume_parser = pipeline_subparsers.add_parser("resume", help="Resume from the last incomplete step")
+    resume_parser = pipeline_subparsers.add_parser(
+        "resume", help="Resume from the last incomplete step"
+    )
     resume_parser.add_argument(
         "--only",
         nargs="+",
@@ -135,7 +141,11 @@ def _handle_spider_run(args: argparse.Namespace) -> int:
         argv.extend(["--config", args.config])
     LOGGER.info(
         "Launching spider",
-        extra={"event": "cli.command", "command": "spider.run", "spider": args.spider or "<default>"},
+        extra={
+            "event": "cli.command",
+            "command": "spider.run",
+            "spider": args.spider or "<default>",
+        },
     )
     run_spider(argv)
     return 0
@@ -207,7 +217,11 @@ def _handle_pipeline_resume(args: argparse.Namespace) -> int:
     if not pending:
         LOGGER.info(
             "All pipeline steps already completed",
-            extra={"event": "cli.command", "command": "pipeline.resume", "channel": context.channel},
+            extra={
+                "event": "cli.command",
+                "command": "pipeline.resume",
+                "channel": context.channel,
+            },
         )
         return 0
 
@@ -220,7 +234,11 @@ def _handle_pipeline_resume(args: argparse.Namespace) -> int:
     if not selection:
         LOGGER.info(
             "No matching steps to resume",
-            extra={"event": "cli.command", "command": "pipeline.resume", "channel": context.channel},
+            extra={
+                "event": "cli.command",
+                "command": "pipeline.resume",
+                "channel": context.channel,
+            },
         )
         return 0
 
@@ -350,11 +368,14 @@ def _build_hooks(store: PipelineStateStore, state: PipelineState) -> PipelineHoo
 def _resolve_channel(config: AppConfig, override: str | None) -> str:
     if override:
         return override
-    return config.pipeline.default_channel or config.default_spider
+    candidate = config.pipeline.default_channel or config.default_spider
+    if not candidate:
+        raise RuntimeError("配置中未设置默认 channel 或 spider")
+    return cast(str, candidate)
 
 
 def _state_root(config: AppConfig) -> Path:
-    return config.paths.state_dir / "pipeline"
+    return cast(Path, config.paths.state_dir) / "pipeline"
 
 
 def _print_state_table(state: PipelineState) -> None:

@@ -40,7 +40,7 @@ def _emit_kv(lines: list[str], key: str, value: str | None) -> None:
 def _quote(value: str | None) -> str | None:
     if value is None:
         return None
-    escaped = value.replace("\\", "\\\\").replace("\"", '\\"')
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
@@ -125,8 +125,12 @@ def migrate(input_path: Path, output_path: Path, *, default_channel: str | None)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Convert config.ini to config.toml")
-    parser.add_argument("--input", default="config.ini", type=Path, help="Path to legacy INI config")
-    parser.add_argument("--output", default="config.toml", type=Path, help="Destination TOML config")
+    parser.add_argument(
+        "--input", default="config.ini", type=Path, help="Path to legacy INI config"
+    )
+    parser.add_argument(
+        "--output", default="config.toml", type=Path, help="Destination TOML config"
+    )
     parser.add_argument(
         "--default-channel",
         help="Override pipeline.default_channel when migrating",

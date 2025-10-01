@@ -32,8 +32,12 @@ class TitleConfig(BaseAIConfig):
         prompt_source = stage.prompt_path or stage.prompt_fallback
         if prompt_source is None:
             prompt_source = Path(__file__).resolve().parents[2] / "prompts" / "title"
-        output_source = stage.output_dir or stage.output_dir_fallback or app_config.paths.titles_for(channel)
-        input_glob = stage.input_glob or str(app_config.paths.translated_for(channel) / "**/*.translated.txt")
+        output_source = (
+            stage.output_dir or stage.output_dir_fallback or app_config.paths.titles_for(channel)
+        )
+        input_glob = stage.input_glob or str(
+            app_config.paths.translated_for(channel) / "**/*.translated.txt"
+        )
         timeout = stage.timeout or 30
 
         return cls(
@@ -140,6 +144,6 @@ class TitleGenerator(BaseAIGenerator):
         if not lines:
             return ""
         title = lines[0]
-        for ch in ('`', '"', "'", "\u300a", "\u300b"):
+        for ch in ("`", '"', "'", "\u300a", "\u300b"):
             title = title.strip(ch)
         return title.strip()

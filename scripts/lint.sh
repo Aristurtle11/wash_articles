@@ -8,6 +8,6 @@ ruff check .
 ruff format --check .
 
 echo "Running mypy for static type checking..."
-mypy .
+mypy
 
 echo "All checks passed!"

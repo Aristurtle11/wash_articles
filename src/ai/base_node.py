@@ -70,14 +70,11 @@ class BaseAIGenerator:
             return "\n\n".join(parts)
         return prompt_path.read_text(encoding="utf-8")
 
-
     @staticmethod
     def create_client(api_key: str | None = None) -> genai.Client:
         resolved_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not resolved_key:
-            raise RuntimeError(
-                "Gemini API key not found. Set GEMINI_API_KEY or pass --api-key."
-            )
+            raise RuntimeError("Gemini API key not found. Set GEMINI_API_KEY or pass --api-key.")
         return genai.Client(api_key=resolved_key)
 
     def _relative_path(self, input_path: Path) -> Path:

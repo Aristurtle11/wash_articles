@@ -61,7 +61,9 @@ class HttpClient:
         cookie_path.parent.mkdir(parents=True, exist_ok=True)
         self._cookie_jar = http.cookiejar.MozillaCookieJar(str(cookie_path))
         self._load_cookie_jar()
-        self._opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self._cookie_jar))
+        self._opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(self._cookie_jar)
+        )
 
     @property
     def cookie_path(self) -> Path:
@@ -74,8 +76,12 @@ class HttpClient:
     def fetch(self, request: HttpRequest) -> HttpResponse:
         headers = self._merge_headers(request.url, request.headers)
         rate_limiter = RateLimiter(
-            min_delay=request.min_delay if request.min_delay is not None else self._http_settings.min_delay,
-            max_delay=request.max_delay if request.max_delay is not None else self._http_settings.max_delay,
+            min_delay=request.min_delay
+            if request.min_delay is not None
+            else self._http_settings.min_delay,
+            max_delay=request.max_delay
+            if request.max_delay is not None
+            else self._http_settings.max_delay,
         )
 
         if rate_limiter.min_delay > 0 or rate_limiter.max_delay > 0:
@@ -88,8 +94,16 @@ class HttpClient:
             method=request.method.upper(),
         )
         timeout = request.timeout if request.timeout is not None else self._http_settings.timeout
-        max_attempts = request.max_attempts if request.max_attempts is not None else self._http_settings.max_attempts
-        backoff_factor = request.backoff_factor if request.backoff_factor is not None else self._http_settings.backoff_factor
+        max_attempts = (
+            request.max_attempts
+            if request.max_attempts is not None
+            else self._http_settings.max_attempts
+        )
+        backoff_factor = (
+            request.backoff_factor
+            if request.backoff_factor is not None
+            else self._http_settings.backoff_factor
+        )
 
         attempt = 0
         start_time = time.monotonic()
@@ -199,7 +213,9 @@ class HttpClient:
                 return f"<brotli decode failed: {exc}>"
         return f"<unsupported encoding {encoding}>"
 
-    def _compute_retry_wait(self, exc: urllib.error.HTTPError, attempt: int, backoff_factor: float) -> float:
+    def _compute_retry_wait(
+        self, exc: urllib.error.HTTPError, attempt: int, backoff_factor: float
+    ) -> float:
         retry_after = exc.headers.get("Retry-After")
         wait_seconds = 0.0
         if retry_after:

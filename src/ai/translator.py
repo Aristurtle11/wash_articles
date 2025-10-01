@@ -34,7 +34,11 @@ class TranslationConfig(BaseAIConfig):
         prompt_source = stage.prompt_path or stage.prompt_fallback
         if prompt_source is None:
             prompt_source = Path(__file__).resolve().parents[2] / "prompts" / "translate"
-        output_source = stage.output_dir or stage.output_dir_fallback or app_config.paths.translated_for(channel)
+        output_source = (
+            stage.output_dir
+            or stage.output_dir_fallback
+            or app_config.paths.translated_for(channel)
+        )
         input_glob = stage.input_glob or str(app_config.paths.raw_for(channel) / "**/*.txt")
         target_language = stage.target_language or "zh-CN"
         timeout = stage.timeout or 30

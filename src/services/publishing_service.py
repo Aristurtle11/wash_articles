@@ -11,7 +11,9 @@ from src.platforms import ContentBundle, ContentPublisher, MediaUploadResult, Me
 class PublishingService:
     """Coordinates filesystem discovery and platform publishing."""
 
-    def __init__(self, publisher: ContentPublisher, media_uploader: MediaUploader | None = None) -> None:
+    def __init__(
+        self, publisher: ContentPublisher, media_uploader: MediaUploader | None = None
+    ) -> None:
         self._publisher = publisher
         self._media_uploader = media_uploader
 

@@ -49,9 +49,7 @@ class JsonFormatter(logging.Formatter):
         }
 
         extras = {
-            key: value
-            for key, value in record.__dict__.items()
-            if key not in _RESERVED_ATTRS
+            key: value for key, value in record.__dict__.items() if key not in _RESERVED_ATTRS
         }
         if extras:
             data.update(extras)
@@ -79,9 +77,7 @@ def configure_logging(
         if structured:
             formatter = JsonFormatter()
         else:
-            formatter = logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s: %(message)s"
-            )
+            formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         for handler in root.handlers:
             handler.setFormatter(formatter)
         return
@@ -90,9 +86,7 @@ def configure_logging(
     if structured:
         handler.setFormatter(JsonFormatter())
     else:
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-        )
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root.addHandler(handler)
 
 

@@ -53,7 +53,9 @@ class GeminiClient:
     ) -> None:
         self._api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not self._api_key:
-            raise GeminiError("Gemini API key not provided. Set GEMINI_API_KEY or pass api_key explicitly.")
+            raise GeminiError(
+                "Gemini API key not provided. Set GEMINI_API_KEY or pass api_key explicitly."
+            )
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
@@ -120,7 +122,9 @@ class GeminiClient:
                 time.sleep(self._backoff * attempt)
                 continue
             except urllib.error.HTTPError as exc:
-                error_body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
+                error_body = (
+                    exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
+                )
                 LOGGER.error("Gemini HTTPError %s on attempt %d: %s", exc.code, attempt, error_body)
                 raise GeminiError(f"Gemini API error {exc.code}: {error_body}") from exc
             except urllib.error.URLError as exc:
@@ -143,11 +147,15 @@ class GeminiClient:
             try:
                 payload = json.loads(body)
             except json.JSONDecodeError as exc:
-                raise GeminiError(f"Failed to decode Gemini response: {exc}\nRaw: {body[:200]!r}") from exc
+                raise GeminiError(
+                    f"Failed to decode Gemini response: {exc}\nRaw: {body[:200]!r}"
+                ) from exc
 
             text = self._extract_text(payload)
             if text is None:
-                raise GeminiError(f"Gemini response missing candidates: {json.dumps(payload)[:500]}")
+                raise GeminiError(
+                    f"Gemini response missing candidates: {json.dumps(payload)[:500]}"
+                )
             duration = time.monotonic() - start
             LOGGER.info("Gemini request succeeded in %.2fs on attempt %d", duration, attempt)
             return text

@@ -49,13 +49,15 @@ def article_metadata(tmp_path: Path) -> ArticleMetadata:
 class TestContentBuilder:
     """Tests for the ContentBuilder component."""
 
-    def test_build_with_formatted_html(self, tmp_path: Path, sample_uploads: list[MediaUploadResult]):
+    def test_build_with_formatted_html(
+        self, tmp_path: Path, sample_uploads: list[MediaUploadResult]
+    ):
         """Verify it correctly injects images into a pre-formatted HTML file."""
         builder = ContentBuilder()
         article_path = tmp_path / "my_article.txt"
         formatted_path = tmp_path / "my_article.formatted.html"
         formatted_path.write_text(
-            '<h1>Hello</h1><p>{{[Image 1]}}</p><p>Some text</p><p>[[IMAGE_2]]</p>',
+            "<h1>Hello</h1><p>{{[Image 1]}}</p><p>Some text</p><p>[[IMAGE_2]]</p>",
             encoding="utf-8",
         )
 

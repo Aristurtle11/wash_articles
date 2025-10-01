@@ -30,15 +30,14 @@ def extract_article_content(html: str, base_url: str) -> list[dict[str, Any]]:
                 hide_featured = hide_featured.get("hidefeaturedimage")
             hero_candidate = {} if hide_featured else post_data.get("featuredImage", {})
             if isinstance(hero_candidate, dict):
-                hero_candidate = hero_candidate.get("node") if "node" in hero_candidate else hero_candidate
+                hero_candidate = (
+                    hero_candidate.get("node") if "node" in hero_candidate else hero_candidate
+                )
             if isinstance(hero_candidate, dict):
                 hero_node = hero_candidate
                 hero_entry = _hero_entry(hero_candidate, base_url)
             blocks = (
-                data.get("props", {})
-                .get("pageProps", {})
-                .get("post", {})
-                .get("editorBlocks", [])
+                data.get("props", {}).get("pageProps", {}).get("post", {}).get("editorBlocks", [])
             )
             if isinstance(blocks, list) and blocks:
                 return _extract_from_editor_blocks(blocks, base_url, hero=hero_node)

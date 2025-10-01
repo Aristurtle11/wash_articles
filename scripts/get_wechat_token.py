@@ -15,7 +15,9 @@ from src.platforms.wechat.credentials import WeChatCredentialStore
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Get a WeChat access token using environment credentials")
+    parser = argparse.ArgumentParser(
+        description="Get a WeChat access token using environment credentials"
+    )
     parser.add_argument(
         "--token-cache",
         default=Path("data/state/wechat_token.json"),

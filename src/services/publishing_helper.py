@@ -29,9 +29,7 @@ def collect_images(raw_root: Path) -> list[Path]:
     if not image_dir.is_dir():
         raise FileNotFoundError(f"未找到图片目录: {image_dir}")
     images = sorted(
-        p
-        for p in image_dir.iterdir()
-        if p.is_file() and p.name.lower().startswith("image_")
+        p for p in image_dir.iterdir() if p.is_file() and p.name.lower().startswith("image_")
     )
     if not images:
         raise FileNotFoundError(f"目录 {image_dir} 中未找到任何 image_* 文件")
@@ -51,9 +49,7 @@ def generate_ai_title(
     app_config: AppConfig,
 ) -> str:
     """Generate or reuse an AI-crafted Chinese title for the article."""
-    title_config = TitleConfig.from_app_config(
-        channel=channel, app_config=app_config
-    )
+    title_config = TitleConfig.from_app_config(channel=channel, app_config=app_config)
     generator = TitleGenerator.from_config(
         config=title_config,
         relative_to=translated_root,
@@ -82,9 +78,7 @@ def resolve_title(
         return override.strip()
 
     try:
-        ai_title = generate_ai_title(
-            article_path, translated_root, channel, app_config
-        )
+        ai_title = generate_ai_title(article_path, translated_root, channel, app_config)
         if ai_title:
             return ai_title
     except Exception as exc:

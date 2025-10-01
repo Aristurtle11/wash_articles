@@ -32,7 +32,12 @@ class RealtorSpider(BaseSpider):
         yield HttpRequest(url=self.config["start_url"])
 
     def parse(self, response: HttpResponse) -> Iterator[Any]:
-        LOGGER.info("Parsing response from %s (status=%s, body=%d bytes)", response.url, response.status, len(response.body))
+        LOGGER.info(
+            "Parsing response from %s (status=%s, body=%d bytes)",
+            response.url,
+            response.status,
+            len(response.body),
+        )
         raw_dir = self._raw_root
         raw_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,7 +64,7 @@ class RealtorSpider(BaseSpider):
             dest_dir=image_dir,
         )
         LOGGER.info(
-            "Downloaded %d images for %s", 
+            "Downloaded %d images for %s",
             sum(1 for item in image_results if item.get("path")),
             response.url,
         )

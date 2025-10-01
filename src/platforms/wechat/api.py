@@ -88,7 +88,9 @@ class WeChatApiClient:
         try:
             expires_seconds = int(expires_in)
         except (TypeError, ValueError) as exc:
-            raise WeChatApiError("expires_in 字段格式不正确", details={"expires_in": expires_in}) from exc
+            raise WeChatApiError(
+                "expires_in 字段格式不正确", details={"expires_in": expires_in}
+            ) from exc
 
         expires_at = datetime.now(tz=UTC) + timedelta(seconds=expires_seconds)
         return AccessTokenResponse(token=token, expires_at=expires_at)

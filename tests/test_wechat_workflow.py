@@ -7,7 +7,9 @@ from src.services.wechat_workflow import ArticleMetadata, WeChatArticleWorkflow
 
 
 class StubUploader:
-    def __init__(self, results: list[MediaUploadResult] | None = None, *, fail: bool = False) -> None:
+    def __init__(
+        self, results: list[MediaUploadResult] | None = None, *, fail: bool = False
+    ) -> None:
         self._results = results or []
         self.fail = fail
         self.called = False
@@ -24,14 +26,18 @@ class StubDraftClient:
         self.called = False
         self.payload = None
 
-    def create_draft(self, payload: dict[str, object]) -> dict[str, object]:  # pragma: no cover - interface compliance
+    def create_draft(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:  # pragma: no cover - interface compliance
         self.called = True
         self.payload = payload
         return {"media_id": "MEDIA_ID"}
 
 
 def _media_result(path: Path, url: str, order: int) -> MediaUploadResult:
-    return MediaUploadResult(local_path=path, remote_url=url, order=order, media_id=f"MEDIA_{order}")
+    return MediaUploadResult(
+        local_path=path, remote_url=url, order=order, media_id=f"MEDIA_{order}"
+    )
 
 
 def test_prepare_markdown_updates_placeholders_and_persists(tmp_path: Path) -> None:
@@ -51,7 +57,7 @@ def test_prepare_markdown_updates_placeholders_and_persists(tmp_path: Path) -> N
     content = workflow._prepare_markdown(article_path, uploads, persist=True)
 
     assert "![Image 1](http://example.com/1.jpg)" in content
-    assert content.count("![Image 1]" ) == 1
+    assert content.count("![Image 1]") == 1
     assert article_path.read_text(encoding="utf-8").count("![Image 1]") == 1
 
     # 第二次更新应替换链接而非重复追加

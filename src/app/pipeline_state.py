@@ -35,7 +35,9 @@ class PipelineState:
     STATUS_FAILED = "failed"
 
     @classmethod
-    def initialize(cls, channel: str, step_names: Iterable[str], *, run_id: str | None = None) -> "PipelineState":
+    def initialize(
+        cls, channel: str, step_names: Iterable[str], *, run_id: str | None = None
+    ) -> "PipelineState":
         steps = {name: cls.STATUS_PENDING for name in step_names}
         return cls(channel=channel, steps=steps, run_id=run_id or _now())
 
@@ -48,7 +50,12 @@ class PipelineState:
         steps: dict[str, str] = {str(name): str(status) for name, status in raw_steps.items()}
         updated_at = str(data.get("updated_at", _now()))
         run_id = data.get("run_id")
-        return cls(channel=channel, steps=steps, updated_at=updated_at, run_id=str(run_id) if run_id else None)
+        return cls(
+            channel=channel,
+            steps=steps,
+            updated_at=updated_at,
+            run_id=str(run_id) if run_id else None,
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
