@@ -1,96 +1,89 @@
 # 爬虫 HTTP 上下文同步计划
 
-## 1. 问题背景
+本文档旨在系统性地分析并解决当前爬虫项目在面对高级反爬虫机制时遇到的挑战。
 
-当前爬虫工作流分为两步：
-1.  使用 `scripts/fetch_cookies.py`（基于 Playwright）模拟真实浏览器，通过 JavaScript 质询，获取并保存有效的 `cookies.txt`。
-2.  运行 `main.py --spider <name>` 时，核心爬虫 `HttpClient`（基于 `urllib`）加载 `cookies.txt` 并发起实际的爬取请求。
+## 1. 现象描述 (Phenomenon)
 
-尽管 Cookie 是有效的，但第二步依然被服务器以 `429 Too Many Requests` 拒绝。根本原因在于**请求上下文的不一致性**：服务器在处理每一次请求时，不仅验证 Cookie，还会检查请求的“指纹”，尤其是请求头（Headers）。
+当前项目中存在两种截然不同的运行结果，具体表现如下：
 
-- **Playwright 客户端**：拥有完整的、浏览器级别的请求头，被服务器信任。
-- **HttpClient 客户端**：仅携带了 Cookie，但其自身的请求头是 Python `urllib` 库的默认值或一个简化的静态模板，这暴露了其作为自动化程序的本质。
+-   **成功的场景**:
+    -   **命令**: `python scripts/fetch_cookies.py https://www.realtor.com/news/...`
+    -   **行为**: 该脚本使用 **Playwright** 库驱动一个真实的无头浏览器内核 (Chromium) 访问目标网站。
+    -   **结果**: 脚本**运行成功**。它能够正确执行网站部署的 JavaScript 质询 (JS Challenge)，通过服务器的验证，最终获取到有效的会话 Cookie 并将其保存到 `data/state/cookies.txt` 文件中。
 
-服务器检测到持有有效“门票”（Cookie）的访问者，其“外貌特征”（请求头）与当初领票的人完全不符，因此判定为机器人行为并予以拦截。
+-   **失败的场景**:
+    -   **命令**: `python main.py --spider realtor`
+    -   **行为**: 该命令启动核心爬虫。爬虫的 `HttpClient` (基于 Python 内置的 `urllib` 库) 会首先加载 `data/state/cookies.txt` 文件，然后带着这些有效的 Cookie 去请求目标页面。
+    -   **结果**: 爬虫**运行失败**。尽管携带了由真实浏览器环境获取的有效 Cookie，服务器依然拒绝了请求，并返回 `urllib.error.HTTPError: HTTP Error 429: Too Many Requests` 错误。
 
-## 2. 核心目标
+## 2. 问题定义 (Problem)
 
-**实现请求上下文的同步与持久化**。
+**核心问题是：请求上下文的不一致性导致爬虫身份暴露。**
 
-我们的目标是，让执行爬取任务的 `HttpClient` 在发出请求时，能够完美地**复用** Playwright 成功通过验证时的**完整浏览器上下文**（主要是请求头），从而确保服务器在每一次交互中都认为它是一个真实的浏览器。
+我们的工作流被割裂为两个独立的阶段，每个阶段使用行为特征完全不同的客户端与服务器交互：
 
-## 3. 详细实施计划
+1.  **认证阶段 (`fetch_cookies.py`)**: 使用一个**高度伪装的、类似真人的客户端** (Playwright) 通过了服务器的身份验证，拿到了“门票” (Cookie)。
+2.  **爬取阶段 (`main.py`)**: 换上一个**简陋的、具有明显机器人特征的客户端** (`HttpClient`)，虽然手持有效的“门票”，但其本身的“外貌”和“行为”与领票者完全不符，因此在“二次安检”时被服务器识别并拦截。
 
-我们将分三个阶段，步步递进地完成改造。
+## 3. 问题分析 (Analysis)
+
+现代网站的反爬虫系统是多维度、全流程的，它不仅仅在入口处进行一次性验证。服务器在处理**每一次请求**时，都会对客户端进行指纹分析。
+
+-   **Playwright 客户端的指纹**:
+    -   **请求头 (Headers)**: 发送一套非常完整且复杂的请求头，包含了 `User-Agent`, `Accept-Language`, `Sec-Ch-Ua` 等十几个字段，这些字段共同构成了一个难以与真实浏览器区分的“指纹”。
+    -   **JavaScript 执行能力**: 能够执行 JS，从而通过动态计算或环境检测类的反爬虫脚本。
+    -   **TLS 指纹**: 在建立 HTTPS 连接时的握手信息也与主流浏览器一致。
+    -   **结论**: 服务器信任这个客户端，并授予其 Cookie。
+
+-   **HttpClient (`urllib`) 客户端的指纹**:
+    -   **请求头 (Headers)**: 仅使用了项目中一个静态、简化的 `default_headers.template.json` 作为模板，缺少大量浏览器特有的请求头字段。这是一个非常明显的机器人特征。
+    -   **JavaScript 执行能力**: 完全没有。
+    -   **TLS 指纹**: 与 Python 库的默认行为一致，和浏览器不同。
+    -   **结论**: 尽管它出示了有效的 Cookie，但服务器通过对其请求头的分析，轻松识别出这是一个自动化程序，并触发了 `429` 速率限制/拒绝策略。
+
+**根本原因**: 我们成功地用一个“特工”骗取了信任，但在执行任务时却派出了一个“机器人”。服务器的防御机制在每一次交互中都会进行身份校验，它发现持有有效凭证的访问者，其指纹特征与最初建立信任时的特征完全不匹配，因此判定为非法访问。
+
+## 4. 修改计划 (Modification Plan)
+
+为了解决这个问题，我们必须**实现请求上下文的同步与持久化**。核心目标是让执行爬取任务的 `HttpClient` 能够完美地**复用** Playwright 成功通过验证时的**完整浏览器指纹**（主要是请求头）。
 
 ### 阶段一：捕获并持久化完整的浏览器请求头
 
-在这一阶段，我们的主战场是 `scripts/fetch_cookies.py`，需要赋予它捕获并保存请求头的新能力。
+在这一阶段，我们将升级 `scripts/fetch_cookies.py`，使其在获取 Cookie 的同时，捕获并保存当时浏览器发送的**所有请求头**。
 
-**步骤 1.1：确定请求头的保存位置**
-
-为了与 `cookies.txt` 的管理方式保持一致，我们将把捕获的请求头保存为一个新的 JSON 文件。
-
--   **操作**：在 `config.toml` 的 `[paths]` 部分，新增一个配置项 `header_jar`。
-    ```toml
-    [paths]
-    # ... (已有配置)
-    cookie_jar = "data/state/cookies.txt"
-    header_jar = "data/state/headers.json" # <-- 新增此行
-    ```
-
-**步骤 1.2：更新配置加载模块**
-
-为了让程序能识别新的 `header_jar` 配置。
-
--   **操作**：修改 `src/settings/loader.py` 中的 `PathSettings` 数据类（或对应的 Pydantic模型），增加 `header_jar: str` 字段，使其能够正确解析 `config.toml` 中的新配置。
-
-**步骤 1.3：升级 `scripts/fetch_cookies.py` 以捕获请求头**
-
-这是本阶段的核心。我们需要利用 Playwright 的网络拦截能力。
-
--   **操作**：
-    1.  在 `fetch` 函数中，当 Playwright 导航到目标页面时，我们需要监听 `request` 事件。
-    2.  通过事件监听，捕获到浏览器为加载主文档（`main_frame`）而发出的那个**初始请求**。
-    3.  从这个请求对象中，提取出**所有的请求头** (`request.headers`)。
-    4.  将提取到的请求头字典（需要过滤掉 Playwright 内部或 Cookie 相关的头，避免重复）序列化为 JSON 格式。
-    5.  将其写入由 `config.paths.header_jar` 指定的文件路径中（例如 `data/state/headers.json`）。
+-   **步骤 1.1：在 `config.toml` 中定义请求头的保存位置**
+    -   在 `[paths]` 部分新增 `header_jar = "data/state/headers.json"`。
+-   **步骤 1.2：更新 `src/settings/loader.py` 以识别新配置**
+    -   在 `PathSettings` 数据类中增加 `header_jar: Path` 字段。
+-   **步骤 1.3：升级 `scripts/fetch_cookies.py` 以捕获并保存请求头**
+    -   利用 Playwright 的 `page.on("request", ...)` 事件监听器。
+    -   捕获主导航请求 (`request.is_navigation_request()`) 的所有请求头。
+    -   将捕获的请求头（移除 `Cookie` 字段以避免冲突）以 JSON 格式写入 `header_jar` 指定的文件中。
 
 ### 阶段二：让 `HttpClient` 使用捕获的浏览器上下文
 
-现在，我们需要改造核心的 `HttpClient`，让它“智能地”加载并使用我们新捕获的请求头。
+改造核心的 `HttpClient`，让它“智能地”加载并使用我们新捕获的请求头。
 
-**步骤 2.1：修改 `HttpClient` 的初始化逻辑**
-
--   **操作**：
-    1.  定位到 `src/core/http_client.py` 中的 `HttpClient.__init__` 方法。
-    2.  修改其加载默认请求头的逻辑。当前的逻辑可能是直接从 `src/settings/default_headers.template.json` 加载。
-    3.  新的逻辑应该是：
-        a.  首先，检查 `config.paths.header_jar` 指定的路径（如 `data/state/headers.json`）是否存在。
-        b.  如果**存在**，则加载这个 JSON 文件作为默认请求头。这将是最高优先级的动态“指纹”。
-        c.  如果**不存在**，则回退到原有的逻辑，加载静态的 `default_headers.template.json` 文件。这保证了在没有执行过 `fetch_cookies.py` 时程序的兼容性。
-    4.  确保加载后，将 `Cookie` 头从请求头中移除，因为它会由 `CookieJar` 自动管理，手动添加可能导致冲突。
+-   **步骤 2.1：修改 `src/core/http_client.py` 的初始化逻辑**
+    -   修改 `HttpClient.__init__` 的构造函数，不再直接接收 `default_headers` 字典，而是接收 `PathSettings` 对象。
+    -   在 `__init__` 内部，实现新的加载逻辑：
+        a.  优先检查并加载 `paths.header_jar` (`headers.json`) 文件。
+        b.  如果该文件不存在或加载失败，则**回退**到加载静态的 `default_headers.template.json` 文件。
+-   **步骤 2.2：更新 `HttpClient` 的实例化调用**
+    -   修改 `src/app/runner.py` 中创建 `HttpClient` 实例的代码，将 `config.paths` 对象传递给其构造函数。
 
 ### 阶段三：执行与验证
 
-完成代码修改后，我们需要一个清晰的执行流程来验证方案的有效性。
+完成代码修改后，定义新的标准作业流程 (SOP) 以验证方案的有效性。
 
-**步骤 3.1：定义新的标准作业流程 (SOP)**
-
-1.  **第一步：生成上下文**
+-   **步骤 3.1：生成上下文**
     -   运行 `python scripts/fetch_cookies.py <url>`。
-    -   **预期结果**：`data/state/` 目录下会生成或更新两个文件：`cookies.txt` 和 `headers.json`。
-
-2.  **第二步：执行爬虫**
+    -   **预期结果**: `data/state/` 目录下同时生成 `cookies.txt` 和 `headers.json`。
+-   **步骤 3.2：执行爬虫**
     -   运行 `python main.py --spider realtor`。
-    -   **预期结果**：
-        -   `HttpClient` 会加载 `headers.json` 和 `cookies.txt`。
-        -   爬虫发出的请求将携带与真实浏览器几乎一致的请求头和 Cookie。
-        -   服务器不再返回 `429` 错误，爬取任务成功执行。
+    -   **预期结果**: `HttpClient` 加载 `headers.json` 和 `cookies.txt`，请求成功，不再出现 `429` 错误。
 
-## 4. 风险与后续步骤
+### 4. 风险与后续步骤
 
--   **动态令牌风险**：如果 `realtor.com` 不仅校验静态请求头，还校验随时间或请求变化的动态令牌（如 `x-csrf-token`），本计划可能依然会失败。如果发生这种情况，下一步的计划将是：在阶段一捕获这个动态令牌，并在阶段二的 `HttpClient` 中设计一种机制来更新和使用它。
--   **文档更新**：计划成功实施后，需要更新 `docs/scripts.md` 和 `docs/core_layer.md`，反映 `fetch_cookies.py` 的新功能和 `HttpClient` 的新行为。
-
-此计划通过捕获并复用成功的请求上下文，旨在从根本上解决爬虫被识别的问题，使项目更加健壮和可靠。
+-   **动态令牌风险**：如果目标网站还校验随时间变化的动态令牌（如 `x-csrf-token`），本计划可能依然会失败。届时需要进一步扩展此方案以处理动态令牌。
+-   **文档更新**：计划成功实施后，需要更新相关模块的文档（如 `docs/scripts.md` 和 `docs/core_layer.md`）以反映新的工作流程。
