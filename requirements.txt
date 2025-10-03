@@ -2,6 +2,7 @@ annotated-types==0.7.0
 anyio==4.11.0
 beautifulsoup4==4.13.5
 Brotli==1.1.0
+bs4==0.0.2
 cachetools==5.5.2
 certifi==2025.8.3
 charset-normalizer==3.4.3
@@ -39,5 +40,3 @@ typing-inspection==0.4.1
 typing_extensions==4.15.0
 urllib3==2.5.0
 websockets==15.0.1
-ruff==0.6.2
-mypy==1.11.1
