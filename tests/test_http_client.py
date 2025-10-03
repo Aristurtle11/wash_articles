@@ -9,7 +9,7 @@ from src.core.http_client import HttpClient
 from src.settings import HttpSettings, PathSettings
 
 
-def _http_settings() -> HttpSettings:
+def _http_settings(*, use_captured: bool) -> HttpSettings:
     return HttpSettings(
         timeout=1,
         min_delay=0,
@@ -17,6 +17,8 @@ def _http_settings() -> HttpSettings:
         max_attempts=1,
         backoff_factor=1,
         transport="auto",
+        use_captured_headers=use_captured,
+        playwright_headless=True,
     )
 
 
@@ -39,7 +41,7 @@ def _make_paths(root: Path) -> PathSettings:
 
 
 def _client(root: Path) -> HttpClient:
-    return HttpClient(http_settings=_http_settings(), paths=_make_paths(root))
+    return HttpClient(http_settings=_http_settings(use_captured=False), paths=_make_paths(root))
 
 
 def test_decode_gzip(tmp_path: Path) -> None:
@@ -58,30 +60,30 @@ def test_header_jar_preferred_when_present(tmp_path: Path) -> None:
     paths.header_jar.parent.mkdir(parents=True, exist_ok=True)
     expected = {
         "user-agent": "custom-agent/1.0",
-        "accept": "text/html",
+        "Accept": "text/html",
         ":authority": "example.org",
         "host": "example.org",
         "accept-encoding": "gzip, deflate, br, zstd",
     }
     paths.header_jar.write_text(json.dumps(expected), encoding="utf-8")
 
-    client = HttpClient(http_settings=_http_settings(), paths=paths)
+    client = HttpClient(http_settings=_http_settings(use_captured=True), paths=paths)
 
     headers = client.default_headers
-    assert headers.get("user-agent") == "custom-agent/1.0"
-    assert headers.get("accept") == "text/html"
+    assert headers.get("User-Agent") == "custom-agent/1.0"
+    assert headers.get("Accept") == "text/html"
     assert ":authority" not in headers
     assert "host" not in headers
-    assert headers.get("accept-encoding") == "gzip, deflate, br"
+    assert headers.get("Accept-Encoding") == "gzip, deflate, br"
     # Fallback headers should still be populated when missing from capture.
-    assert "accept-language" in headers
+    assert "Accept-Language" in headers
 
 
 def test_header_jar_created_when_missing(tmp_path: Path) -> None:
     root = tmp_path / "missing"
     paths = _make_paths(root)
 
-    client = HttpClient(http_settings=_http_settings(), paths=paths)
+    client = HttpClient(http_settings=_http_settings(use_captured=False), paths=paths)
 
     headers_path = paths.header_jar
     assert headers_path.exists()
@@ -96,7 +98,7 @@ def test_invalid_header_jar_falls_back(tmp_path: Path) -> None:
     paths.header_jar.parent.mkdir(parents=True, exist_ok=True)
     paths.header_jar.write_text("{invalid", encoding="utf-8")
 
-    client = HttpClient(http_settings=_http_settings(), paths=paths)
+    client = HttpClient(http_settings=_http_settings(use_captured=True), paths=paths)
 
     loaded = json.loads(paths.header_jar.read_text(encoding="utf-8"))
     assert isinstance(loaded, dict)

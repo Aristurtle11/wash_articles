@@ -46,6 +46,8 @@ class HttpSettings:
     max_attempts: int
     backoff_factor: float
     transport: str
+    use_captured_headers: bool
+    playwright_headless: bool
 
 
 @dataclass(slots=True)
@@ -427,6 +429,8 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         max_attempts=int(http_section.get("max_attempts", 3)),
         backoff_factor=float(http_section.get("backoff_factor", 1.5)),
         transport=str(http_section.get("transport", "auto")),
+        use_captured_headers=bool(http_section.get("use_captured_headers", False)),
+        playwright_headless=bool(http_section.get("playwright_headless", True)),
     )
 
     default_channel = pipeline_section.get("default_channel")

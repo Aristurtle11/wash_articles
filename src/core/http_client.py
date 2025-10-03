@@ -44,6 +44,29 @@ _BROWSER_HEADER_ALLOW = {
     "pragma",
     "cache-control",
 }
+_CANONICAL_HEADER_NAMES = {
+    "user-agent": "User-Agent",
+    "accept": "Accept",
+    "accept-language": "Accept-Language",
+    "accept-encoding": "Accept-Encoding",
+    "cache-control": "Cache-Control",
+    "pragma": "Pragma",
+    "dnt": "DNT",
+    "priority": "Priority",
+    "referer": "Referer",
+    "sec-ch-ua": "Sec-CH-UA",
+    "sec-ch-ua-mobile": "Sec-CH-UA-Mobile",
+    "sec-ch-ua-platform": "Sec-CH-UA-Platform",
+    "sec-fetch-dest": "Sec-Fetch-Dest",
+    "sec-fetch-mode": "Sec-Fetch-Mode",
+    "sec-fetch-site": "Sec-Fetch-Site",
+    "sec-fetch-user": "Sec-Fetch-User",
+    "upgrade-insecure-requests": "Upgrade-Insecure-Requests",
+    "cookie": "Cookie",
+    "cookie2": "Cookie2",
+    "host": "Host",
+    "connection": "Connection",
+}
 
 
 @dataclass(slots=True)
@@ -82,6 +105,7 @@ class HttpClient:
         self._http_settings = http_settings
         self._cookie_path = paths.cookie_jar
         self._header_path = paths.header_jar
+        self._use_captured_headers = bool(getattr(http_settings, "use_captured_headers", False))
         self._default_headers: dict[str, str] = self._load_header_context()
         self._transport = (transport or getattr(http_settings, "transport", "auto") or "auto").lower()
 
@@ -184,18 +208,29 @@ class HttpClient:
 
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=True,
+                headless=self._playwright_headless,
                 chromium_sandbox=False,
-                args=["--disable-dev-shm-usage"],
+                args=[
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                ],
             )
-            context_kwargs: dict[str, object] = {}
-            user_agent = headers.get("user-agent")
+            context_kwargs: dict[str, object] = {
+                "viewport": {"width": 1280, "height": 720},
+                "screen": {"width": 1280, "height": 720},
+                "device_scale_factor": 1,
+                "is_mobile": False,
+                "has_touch": False,
+            }
+            user_agent = headers.get("User-Agent")
             if user_agent:
                 context_kwargs["user_agent"] = user_agent
             locale = self._locale_from_headers(headers)
             if locale:
                 context_kwargs["locale"] = locale
             context = browser.new_context(**context_kwargs)
+            self._apply_stealth(context)
             extra_headers = self._browser_headers(headers)
             if extra_headers:
                 context.set_extra_http_headers(extra_headers)
@@ -205,10 +240,10 @@ class HttpClient:
             try:
                 page.wait_for_function(
                     "() => !document.body.innerText.includes('Your request could not be processed')",
-                    timeout=int(timeout * 1000),
+                    timeout=int(timeout * 1000 / 2),
                 )
             except PlaywrightTimeout:
-                pass
+                _LOGGER.debug("Initial challenge wait timed out; continuing with fallback")
             body = page.content()
             response_headers = response.all_headers() if response else {}
             status = response.status if response else 200
@@ -217,14 +252,18 @@ class HttpClient:
                 if not self._looks_like_challenge(body, status):
                     break
                 page.wait_for_timeout(3000)
-                response = page.reload(wait_until="networkidle", timeout=int(timeout * 1000))
+                try:
+                    response = page.reload(wait_until="networkidle", timeout=int(timeout * 1000))
+                except PlaywrightTimeout:
+                    _LOGGER.debug("Page reload timed out; stopping challenge retries")
+                    break
                 try:
                     page.wait_for_function(
                         "() => !document.body.innerText.includes('Your request could not be processed')",
-                        timeout=int(timeout * 1000),
+                        timeout=int(timeout * 1000 / 2),
                     )
                 except PlaywrightTimeout:
-                    pass
+                    _LOGGER.debug("Challenge wait timed out during retry")
                 body = page.content()
                 if response:
                     response_headers = response.all_headers()
@@ -250,7 +289,7 @@ class HttpClient:
     def _merge_headers(self, url: str, request_headers: Mapping[str, str] | None) -> dict[str, str]:
         headers = dict(self._default_headers)
         if request_headers:
-            headers.update({str(k): str(v) for k, v in request_headers.items()})
+            headers.update(self._canonicalize_headers(request_headers))
         cookie_header = self._cookie_header_for_url(url, headers.get("Cookie", ""))
         if cookie_header:
             headers["Cookie"] = cookie_header
@@ -329,12 +368,106 @@ class HttpClient:
         return f"<unsupported encoding {encoding}>"
 
     def _load_header_context(self) -> dict[str, str]:
-        stored = self._read_headers_file(self._header_path)
-        headers = self._normalize_headers(stored or {})
-        fallback = self._normalize_headers(load_default_headers())
-        for key, value in fallback.items():
-            headers.setdefault(key, value)
+        fallback_raw = load_default_headers()
+        fallback = self._canonicalize_headers(fallback_raw)
+        headers = dict(fallback)
+
+        if self._use_captured_headers:
+            stored = self._read_headers_file(self._header_path)
+            if stored:
+                captured = self._canonicalize_headers(stored)
+                cookie_header = captured.pop("Cookie", None)
+                if cookie_header:
+                    self._apply_cookie_header(cookie_header)
+                for key, value in captured.items():
+                    if key == "Sec-CH-UA" and "Headless" in value:
+                        continue
+                    headers[key] = value
+
+        if "Accept-Encoding" in headers:
+            headers["Accept-Encoding"] = self._strip_unsupported_encodings(headers["Accept-Encoding"])
+
         return headers
+
+    def _apply_cookie_header(self, header_value: str) -> None:
+        try:
+            from http.cookies import SimpleCookie
+        except ImportError:  # pragma: no cover - fallback for minimal envs
+            _LOGGER.warning("无法导入 SimpleCookie，跳过 Cookie 合并")
+            return
+
+        cookie = SimpleCookie()
+        try:
+            cookie.load(header_value)
+        except Exception as exc:
+            _LOGGER.warning("解析 Cookie 头失败: %s", exc)
+            return
+
+        changed = False
+        for morsel in cookie.values():
+            name = morsel.key
+            value = morsel.value
+            domain = morsel["domain"] or "www.realtor.com"
+            path = morsel["path"] or "/"
+            secure = bool(morsel["secure"])
+            expires = None
+            if morsel["expires"]:
+                try:
+                    expires = int(float(morsel["expires"]))
+                except ValueError:
+                    expires = None
+
+            new_cookie = http.cookiejar.Cookie(
+                version=0,
+                name=name,
+                value=value,
+                port=None,
+                port_specified=False,
+                domain=domain,
+                domain_specified=True,
+                domain_initial_dot=domain.startswith("."),
+                path=path,
+                path_specified=True,
+                secure=secure,
+                expires=expires,
+                discard=False,
+                comment=None,
+                comment_url=None,
+                rest={},
+            )
+            self._cookie_jar.set_cookie(new_cookie)
+            changed = True
+
+        if changed:
+            try:
+                self._cookie_jar.save(ignore_discard=True, ignore_expires=True)
+            except Exception as exc:  # pragma: no cover - best effort
+                _LOGGER.debug("保存合并后的 Cookie 失败: %s", exc)
+
+    def _apply_stealth(self, context) -> None:
+        script = """
+        (() => {
+          Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+          window.navigator.chrome = { runtime: {} };
+          Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+          Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+          const originalQuery = window.navigator.permissions.query;
+          window.navigator.permissions.query = (parameters) => (
+            parameters.name === 'notifications'
+              ? Promise.resolve({ state: Notification.permission })
+              : originalQuery(parameters)
+          );
+          const getParameter = WebGLRenderingContext.prototype.getParameter;
+          WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            if (parameter === 37445) return 'Intel Inc.';
+            if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+            return getParameter.call(this, parameter);
+          };
+          Object.defineProperty(screen, 'availHeight', { get: () => window.innerHeight });
+          Object.defineProperty(screen, 'availWidth', { get: () => window.innerWidth });
+        })();
+        """
+        context.add_init_script(script)
 
     def _read_headers_file(self, path: Path) -> dict[str, str] | None:
         try:
@@ -353,21 +486,18 @@ class HttpClient:
                 json.dump(self._default_headers, fp, ensure_ascii=False, indent=2, sort_keys=True)
         except OSError as exc:
             _LOGGER.warning("写入 header_jar 失败 (%s): %s", self._header_path, exc)
-
-    def _normalize_headers(self, raw: Mapping[str, str]) -> dict[str, str]:
-        normalized: dict[str, str] = {}
+    def _canonicalize_headers(self, raw: Mapping[str, str]) -> dict[str, str]:
+        canonical: dict[str, str] = {}
         for key, value in raw.items():
             key_str = str(key).strip()
             if not key_str or key_str.startswith(":"):
                 continue
-            key_lower = key_str.lower()
-            if key_lower in _EXCLUDED_HEADER_KEYS:
+            lower = key_str.lower()
+            if lower in _EXCLUDED_HEADER_KEYS:
                 continue
-            if key_lower == "accept-encoding":
-                normalized[key_lower] = self._strip_unsupported_encodings(str(value))
-            else:
-                normalized[key_lower] = str(value)
-        return normalized
+            canonical_key = _CANONICAL_HEADER_NAMES.get(lower, key_str)
+            canonical[canonical_key] = str(value)
+        return canonical
 
     def _strip_unsupported_encodings(self, value: str) -> str:
         encodings = [item.strip() for item in value.split(",") if item.strip()]
