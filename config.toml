@@ -16,7 +16,7 @@ backoff_factor = 1.5
 timeout = 10
 transport = "auto"
 use_captured_headers = true
-playwright_headless = false
+playwright_headless = true
 playwright_channel = "chrome"
 
 [pipeline]
@@ -56,5 +56,5 @@ start_url = "https://example.com/"
 
 [[spiders]]
 name = "realtor"
-start_url = "https://www.realtor.com/news/real-estate-news/fannie-mae-freddie-mac-government-shutdown/"
+start_url = "https://www.realtor.com/news/feed/"
 transport = "browser"

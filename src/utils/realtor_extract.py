@@ -10,7 +10,7 @@ import http.cookiejar
 from pathlib import Path
 from typing import Any, Sequence
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from ..settings import load_default_headers
 
@@ -73,6 +73,120 @@ def render_content_to_text(content: list[dict[str, Any]]) -> str:
                 lines.append(text)
                 lines.append("")
     return "\n".join(lines).strip() + "\n"
+
+
+def extract_feed_content(
+    html: str,
+    base_url: str,
+    *,
+    hero_url: str | None = None,
+) -> list[dict[str, Any]]:
+    soup = BeautifulSoup(html, "html.parser")
+    root = soup.body or soup
+
+    content: list[dict[str, Any]] = []
+    paragraph_counter = 0
+    image_counter = 0
+
+    if hero_url:
+        absolute = urllib.parse.urljoin(base_url, hero_url)
+        if absolute:
+            image_counter = 1
+            content.append(
+                {
+                    "kind": "image",
+                    "sequence": image_counter,
+                    "url": absolute,
+                    "alt": "",
+                    "caption": "",
+                    "credit": "",
+                }
+            )
+
+    for tag in root.find_all(["h2", "h3", "h4", "p", "figure", "img"]):
+        if isinstance(tag, Tag) and tag.find_parent("script"):
+            continue
+        if not isinstance(tag, Tag):
+            continue
+
+        if tag.name == "figure":
+            img = tag.find("img")
+            if not img:
+                continue
+            src = (img.get("src") or img.get("data-src") or "").strip()
+            if not src:
+                continue
+            absolute = urllib.parse.urljoin(base_url, src)
+            if not absolute:
+                continue
+            caption_text = tag.get_text(" ", strip=True)
+            alt_text = (img.get("alt") or "").strip()
+            credit = ""
+            image_counter += 1
+            content.append(
+                {
+                    "kind": "image",
+                    "sequence": image_counter,
+                    "url": absolute,
+                    "alt": alt_text,
+                    "caption": caption_text,
+                    "credit": credit,
+                }
+            )
+            continue
+
+        if tag.name == "img":
+            if tag.find_parent("figure"):
+                continue
+            src = (tag.get("src") or tag.get("data-src") or "").strip()
+            if not src:
+                continue
+            absolute = urllib.parse.urljoin(base_url, src)
+            if not absolute:
+                continue
+            alt_text = (tag.get("alt") or "").strip()
+            image_counter += 1
+            content.append(
+                {
+                    "kind": "image",
+                    "sequence": image_counter,
+                    "url": absolute,
+                    "alt": alt_text,
+                    "caption": "",
+                    "credit": "",
+                }
+            )
+            continue
+
+        if tag.name in {"h2", "h3", "h4"}:
+            if tag.find_parent("figure"):
+                continue
+            heading_text = tag.get_text(" ", strip=True)
+            if not heading_text:
+                continue
+            try:
+                level = int(tag.name[1])
+            except (TypeError, ValueError):
+                level = 2
+            content.append({"kind": "heading", "level": level, "text": heading_text})
+            continue
+
+        if tag.name == "p":
+            if tag.find_parent("figure"):
+                continue
+            text = tag.get_text(" ", strip=True)
+            if not text:
+                continue
+            paragraph_counter += 1
+            content.append(
+                {
+                    "kind": "paragraph",
+                    "index": paragraph_counter,
+                    "text": text,
+                }
+            )
+
+    return content
 
 
 def _extract_from_dom(
