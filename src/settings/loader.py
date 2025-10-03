@@ -48,6 +48,7 @@ class HttpSettings:
     transport: str
     use_captured_headers: bool
     playwright_headless: bool
+    playwright_channel: str | None
 
 
 @dataclass(slots=True)
@@ -431,6 +432,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         transport=str(http_section.get("transport", "auto")),
         use_captured_headers=bool(http_section.get("use_captured_headers", False)),
         playwright_headless=bool(http_section.get("playwright_headless", True)),
+        playwright_channel=str(http_section.get("playwright_channel", "")) or None,
     )
 
     default_channel = pipeline_section.get("default_channel")

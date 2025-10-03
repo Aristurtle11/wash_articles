@@ -19,6 +19,7 @@ def _http_settings(*, use_captured: bool) -> HttpSettings:
         transport="auto",
         use_captured_headers=use_captured,
         playwright_headless=True,
+        playwright_channel=None,
     )
 
 

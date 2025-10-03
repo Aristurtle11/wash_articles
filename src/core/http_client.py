@@ -108,6 +108,9 @@ class HttpClient:
         self._use_captured_headers = bool(getattr(http_settings, "use_captured_headers", False))
         self._default_headers: dict[str, str] = self._load_header_context()
         self._transport = (transport or getattr(http_settings, "transport", "auto") or "auto").lower()
+        self._playwright_channel = getattr(http_settings, "playwright_channel", None)
+        headless = getattr(http_settings, "playwright_headless", True)
+        self._playwright_headless = bool(headless)
 
         self._cookie_path.parent.mkdir(parents=True, exist_ok=True)
         self._header_path.parent.mkdir(parents=True, exist_ok=True)
@@ -198,7 +201,7 @@ class HttpClient:
 
     def _fetch_with_browser(self, request: HttpRequest) -> HttpResponse:
         try:
-            from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
+            from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout, sync_playwright
         except ModuleNotFoundError as exc:  # pragma: no cover - Playwright optional in tests
             raise RuntimeError("Playwright is required for browser transport") from exc
 
@@ -207,15 +210,20 @@ class HttpClient:
         start_time = time.monotonic()
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=self._playwright_headless,
-                chromium_sandbox=False,
-                args=[
+            headless = getattr(self, "_playwright_headless", True)
+            launch_kwargs = {
+                "headless": headless,
+                "chromium_sandbox": False,
+                "args": [
                     "--disable-dev-shm-usage",
                     "--disable-blink-features=AutomationControlled",
                     "--disable-infobars",
                 ],
-            )
+            }
+            channel = getattr(self, "_playwright_channel", None)
+            if channel:
+                launch_kwargs["channel"] = channel
+            browser = p.chromium.launch(**launch_kwargs)
             context_kwargs: dict[str, object] = {
                 "viewport": {"width": 1280, "height": 720},
                 "screen": {"width": 1280, "height": 720},
@@ -236,7 +244,18 @@ class HttpClient:
                 context.set_extra_http_headers(extra_headers)
             self._sync_cookies_to_browser(context, request.url)
             page = context.new_page()
-            response = page.goto(request.url, wait_until="networkidle", timeout=int(timeout * 1000))
+            timeout_ms = max(int(timeout * 1000), 45000)
+            try:
+                response = page.goto(request.url, wait_until="networkidle", timeout=timeout_ms)
+            except PlaywrightTimeout:
+                _LOGGER.debug("Initial goto networkidle timed out; retrying with domcontentloaded")
+                response = page.goto(
+                    request.url, wait_until="domcontentloaded", timeout=timeout_ms
+                )
+                try:
+                    page.wait_for_load_state("networkidle", timeout=timeout_ms // 2)
+                except PlaywrightTimeout:
+                    _LOGGER.debug("networkidle wait still timed out after fallback")
             try:
                 page.wait_for_function(
                     "() => !document.body.innerText.includes('Your request could not be processed')",
@@ -244,7 +263,11 @@ class HttpClient:
                 )
             except PlaywrightTimeout:
                 _LOGGER.debug("Initial challenge wait timed out; continuing with fallback")
-            body = page.content()
+            try:
+                body = page.content()
+            except PlaywrightError as exc:
+                _LOGGER.warning("Failed to collect page content (initial load): %s", exc)
+                body = ""
             response_headers = response.all_headers() if response else {}
             status = response.status if response else 200
 
@@ -264,7 +287,11 @@ class HttpClient:
                     )
                 except PlaywrightTimeout:
                     _LOGGER.debug("Challenge wait timed out during retry")
-                body = page.content()
+                try:
+                    body = page.content()
+                except PlaywrightError as exc:
+                    _LOGGER.warning("Failed to collect page content after reload: %s", exc)
+                    body = ""
                 if response:
                     response_headers = response.all_headers()
                     status = response.status
@@ -447,24 +474,82 @@ class HttpClient:
     def _apply_stealth(self, context) -> None:
         script = """
         (() => {
-          Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+          const define = (obj, key, value) => {
+            try {
+              Object.defineProperty(obj, key, { get: () => value });
+            } catch (err) {
+              try { obj[key] = value; } catch (_) { /* noop */ }
+            }
+          };
+
+          define(navigator, 'webdriver', undefined);
           window.navigator.chrome = { runtime: {} };
-          Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-          Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-          const originalQuery = window.navigator.permissions.query;
-          window.navigator.permissions.query = (parameters) => (
+          define(navigator, 'languages', ['en-US', 'en']);
+          define(navigator, 'platform', 'Win32');
+          define(navigator, 'maxTouchPoints', 0);
+          define(navigator, 'hardwareConcurrency', 8);
+          define(navigator, 'pdfViewerEnabled', true);
+          define(navigator, 'plugins', [1, 2, 3, 4, 5]);
+
+          if (!navigator.userAgentData) {
+            const data = {
+              brands: [
+                { brand: 'Not.A/Brand', version: '8' },
+                { brand: 'Chromium', version: '125' },
+                { brand: 'Google Chrome', version: '125' }
+              ],
+              mobile: false,
+              platform: 'Windows',
+              getHighEntropyValues: () => Promise.resolve({
+                architecture: 'x86',
+                platformVersion: '15.0.0',
+                model: '',
+                uaFullVersion: '125.0.6422.60',
+                bitness: '64',
+                brands: [
+                  { brand: 'Not.A/Brand', version: '8' },
+                  { brand: 'Chromium', version: '125' },
+                  { brand: 'Google Chrome', version: '125' }
+                ],
+                fullVersionList: [
+                  { brand: 'Not.A/Brand', version: '8.0.0.0' },
+                  { brand: 'Chromium', version: '125.0.6422.60' },
+                  { brand: 'Google Chrome', version: '125.0.6422.60' }
+                ]
+              }),
+            };
+            define(navigator, 'userAgentData', data);
+          }
+
+          const originalQuery = navigator.permissions.query.bind(navigator.permissions);
+          navigator.permissions.query = (parameters) => (
             parameters.name === 'notifications'
               ? Promise.resolve({ state: Notification.permission })
               : originalQuery(parameters)
           );
+
           const getParameter = WebGLRenderingContext.prototype.getParameter;
           WebGLRenderingContext.prototype.getParameter = function(parameter) {
             if (parameter === 37445) return 'Intel Inc.';
-            if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+            if (parameter === 37446) return 'Intel(R) Iris(R) Graphics';
             return getParameter.call(this, parameter);
           };
-          Object.defineProperty(screen, 'availHeight', { get: () => window.innerHeight });
-          Object.defineProperty(screen, 'availWidth', { get: () => window.innerWidth });
+
+          const getParameter2 = WebGL2RenderingContext && WebGL2RenderingContext.prototype.getParameter;
+          if (getParameter2) {
+            WebGL2RenderingContext.prototype.getParameter = function(parameter) {
+              if (parameter === 37445) return 'Intel Inc.';
+              if (parameter === 37446) return 'Intel(R) Iris(R) Graphics';
+              return getParameter2.call(this, parameter);
+            };
+          }
+
+          define(screen, 'availHeight', window.innerHeight);
+          define(screen, 'availWidth', window.innerWidth);
+          define(screen, 'colorDepth', 24);
+          define(screen, 'pixelDepth', 24);
+          define(window, 'outerWidth', window.innerWidth);
+          define(window, 'outerHeight', window.innerHeight + 72);
         })();
         """
         context.add_init_script(script)

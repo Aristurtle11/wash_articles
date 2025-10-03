@@ -16,7 +16,8 @@ backoff_factor = 1.5
 timeout = 10
 transport = "auto"
 use_captured_headers = true
-playwright_headless = true
+playwright_headless = false
+playwright_channel = "chrome"
 
 [pipeline]
 default_channel = "realtor"
