@@ -22,6 +22,28 @@ from .rate_limiter import RateLimiter
 
 
 _LOGGER = logging.getLogger(__name__)
+_EXCLUDED_HEADER_KEYS = {"cookie", "cookie2", "host", "content-length"}
+_BROWSER_HEADER_SKIP = {
+    "cookie",
+    "user-agent",
+    "accept-encoding",
+    "content-length",
+    "connection",
+    "host",
+}
+_BROWSER_HEADER_ALLOW = {
+    "referer",
+    "sec-ch-ua",
+    "sec-ch-ua-mobile",
+    "sec-ch-ua-platform",
+    "sec-fetch-dest",
+    "sec-fetch-mode",
+    "sec-fetch-site",
+    "sec-fetch-user",
+    "upgrade-insecure-requests",
+    "pragma",
+    "cache-control",
+}
 
 
 @dataclass(slots=True)
@@ -55,11 +77,13 @@ class HttpClient:
         *,
         http_settings: HttpSettings,
         paths: PathSettings,
+        transport: str | None = None,
     ) -> None:
         self._http_settings = http_settings
         self._cookie_path = paths.cookie_jar
         self._header_path = paths.header_jar
         self._default_headers: dict[str, str] = self._load_header_context()
+        self._transport = (transport or getattr(http_settings, "transport", "auto") or "auto").lower()
 
         self._cookie_path.parent.mkdir(parents=True, exist_ok=True)
         self._header_path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,6 +104,17 @@ class HttpClient:
         return dict(self._default_headers)
 
     def fetch(self, request: HttpRequest) -> HttpResponse:
+        if self._transport == "browser":
+            return self._fetch_with_browser(request)
+        try:
+            return self._fetch_with_urllib(request)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and self._transport == "auto":
+                _LOGGER.warning("HTTP 429 detected; retrying with browser transport")
+                return self._fetch_with_browser(request)
+            raise
+
+    def _fetch_with_urllib(self, request: HttpRequest) -> HttpResponse:
         headers = self._merge_headers(request.url, request.headers)
         rate_limiter = RateLimiter(
             min_delay=request.min_delay
@@ -136,6 +171,81 @@ class HttpClient:
                     raise
                 wait_seconds = self._compute_retry_wait(exc, attempt, backoff_factor)
                 time.sleep(wait_seconds)
+
+    def _fetch_with_browser(self, request: HttpRequest) -> HttpResponse:
+        try:
+            from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
+        except ModuleNotFoundError as exc:  # pragma: no cover - Playwright optional in tests
+            raise RuntimeError("Playwright is required for browser transport") from exc
+
+        headers = self._merge_headers(request.url, request.headers)
+        timeout = request.timeout if request.timeout is not None else self._http_settings.timeout
+        start_time = time.monotonic()
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                chromium_sandbox=False,
+                args=["--disable-dev-shm-usage"],
+            )
+            context_kwargs: dict[str, object] = {}
+            user_agent = headers.get("user-agent")
+            if user_agent:
+                context_kwargs["user_agent"] = user_agent
+            locale = self._locale_from_headers(headers)
+            if locale:
+                context_kwargs["locale"] = locale
+            context = browser.new_context(**context_kwargs)
+            extra_headers = self._browser_headers(headers)
+            if extra_headers:
+                context.set_extra_http_headers(extra_headers)
+            self._sync_cookies_to_browser(context, request.url)
+            page = context.new_page()
+            response = page.goto(request.url, wait_until="networkidle", timeout=int(timeout * 1000))
+            try:
+                page.wait_for_function(
+                    "() => !document.body.innerText.includes('Your request could not be processed')",
+                    timeout=int(timeout * 1000),
+                )
+            except PlaywrightTimeout:
+                pass
+            body = page.content()
+            response_headers = response.all_headers() if response else {}
+            status = response.status if response else 200
+
+            for _ in range(3):
+                if not self._looks_like_challenge(body, status):
+                    break
+                page.wait_for_timeout(3000)
+                response = page.reload(wait_until="networkidle", timeout=int(timeout * 1000))
+                try:
+                    page.wait_for_function(
+                        "() => !document.body.innerText.includes('Your request could not be processed')",
+                        timeout=int(timeout * 1000),
+                    )
+                except PlaywrightTimeout:
+                    pass
+                body = page.content()
+                if response:
+                    response_headers = response.all_headers()
+                    status = response.status
+
+            elapsed = time.monotonic() - start_time
+            final_url = page.url
+            self._sync_cookies_from_browser(context.cookies())
+            context.close()
+            browser.close()
+
+        self._update_cookie_header(final_url)
+
+        return HttpResponse(
+            url=final_url,
+            status=status,
+            headers=response_headers,
+            body=body.encode("utf-8"),
+            text=body,
+            elapsed=elapsed,
+        )
 
     def _merge_headers(self, url: str, request_headers: Mapping[str, str] | None) -> dict[str, str]:
         headers = dict(self._default_headers)
@@ -219,13 +329,12 @@ class HttpClient:
         return f"<unsupported encoding {encoding}>"
 
     def _load_header_context(self) -> dict[str, str]:
-        headers = self._read_headers_file(self._header_path)
-        if headers is not None:
-            return headers
-        fallback = load_default_headers()
-        if fallback:
-            return dict(fallback)
-        return {}
+        stored = self._read_headers_file(self._header_path)
+        headers = self._normalize_headers(stored or {})
+        fallback = self._normalize_headers(load_default_headers())
+        for key, value in fallback.items():
+            headers.setdefault(key, value)
+        return headers
 
     def _read_headers_file(self, path: Path) -> dict[str, str] | None:
         try:
@@ -244,6 +353,112 @@ class HttpClient:
                 json.dump(self._default_headers, fp, ensure_ascii=False, indent=2, sort_keys=True)
         except OSError as exc:
             _LOGGER.warning("写入 header_jar 失败 (%s): %s", self._header_path, exc)
+
+    def _normalize_headers(self, raw: Mapping[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for key, value in raw.items():
+            key_str = str(key).strip()
+            if not key_str or key_str.startswith(":"):
+                continue
+            key_lower = key_str.lower()
+            if key_lower in _EXCLUDED_HEADER_KEYS:
+                continue
+            if key_lower == "accept-encoding":
+                normalized[key_lower] = self._strip_unsupported_encodings(str(value))
+            else:
+                normalized[key_lower] = str(value)
+        return normalized
+
+    def _strip_unsupported_encodings(self, value: str) -> str:
+        encodings = [item.strip() for item in value.split(",") if item.strip()]
+        supported = []
+        for encoding in encodings:
+            if encoding.lower() == "zstd":
+                continue
+            supported.append(encoding)
+        return ", ".join(supported) if supported else value
+
+    def _looks_like_challenge(self, body: str, status: int) -> bool:
+        if status == 429:
+            return True
+        markers = [
+            "Your request could not be processed",
+            "kpsdk",
+            "unblockrequest@realtor.com",
+        ]
+        body_lower = body.lower()
+        return any(marker.lower() in body_lower for marker in markers)
+
+    def _browser_headers(self, headers: Mapping[str, str]) -> dict[str, str]:
+        filtered: dict[str, str] = {}
+        for key, value in headers.items():
+            key_lower = key.lower()
+            if key_lower in _BROWSER_HEADER_SKIP:
+                continue
+            if key_lower not in _BROWSER_HEADER_ALLOW:
+                continue
+            filtered[key] = value
+        return filtered
+
+    def _locale_from_headers(self, headers: Mapping[str, str]) -> str | None:
+        accept_language = headers.get("accept-language")
+        if not accept_language:
+            return None
+        primary = accept_language.split(",", 1)[0].strip()
+        return primary or None
+
+    def _sync_cookies_to_browser(self, context, url: str) -> None:
+        cookies: list[dict[str, object]] = []
+        for cookie in self._cookie_jar:
+            cookie_dict: dict[str, object] = {
+                "name": cookie.name,
+                "value": cookie.value,
+                "domain": cookie.domain,
+                "path": cookie.path,
+                "secure": cookie.secure,
+            }
+            if cookie.expires is not None:
+                cookie_dict["expires"] = cookie.expires
+            rest = getattr(cookie, "_rest", {})
+            if rest.get("HttpOnly") is not None:
+                cookie_dict["httpOnly"] = True
+            cookies.append(cookie_dict)
+        if cookies:
+            context.add_cookies(cookies)
+
+    def _sync_cookies_from_browser(self, cookies: list[dict[str, object]]) -> None:
+        changed = False
+        for cookie in cookies:
+            name = str(cookie.get("name"))
+            value = str(cookie.get("value", ""))
+            domain = str(cookie.get("domain", ""))
+            path = str(cookie.get("path", "/"))
+            expires_raw = cookie.get("expires")
+            expires = int(expires_raw) if isinstance(expires_raw, (int, float)) and expires_raw > 0 else None
+            secure = bool(cookie.get("secure", False))
+            http_only = bool(cookie.get("httpOnly", False))
+            new_cookie = http.cookiejar.Cookie(
+                version=0,
+                name=name,
+                value=value,
+                port=None,
+                port_specified=False,
+                domain=domain,
+                domain_specified=bool(domain),
+                domain_initial_dot=domain.startswith("."),
+                path=path,
+                path_specified=True,
+                secure=secure,
+                expires=expires,
+                discard=False,
+                comment=None,
+                comment_url=None,
+                rest={"HttpOnly": None} if http_only else {},
+            )
+            self._cookie_jar.set_cookie(new_cookie)
+            changed = True
+        if changed:
+            self._cookie_jar.save(ignore_discard=True, ignore_expires=True)
 
     def _compute_retry_wait(
         self, exc: urllib.error.HTTPError, attempt: int, backoff_factor: float

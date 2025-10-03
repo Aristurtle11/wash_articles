@@ -10,7 +10,14 @@ from src.settings import HttpSettings, PathSettings
 
 
 def _http_settings() -> HttpSettings:
-    return HttpSettings(timeout=1, min_delay=0, max_delay=0, max_attempts=1, backoff_factor=1)
+    return HttpSettings(
+        timeout=1,
+        min_delay=0,
+        max_delay=0,
+        max_attempts=1,
+        backoff_factor=1,
+        transport="auto",
+    )
 
 
 def _make_paths(root: Path) -> PathSettings:
@@ -49,14 +56,25 @@ def test_header_jar_preferred_when_present(tmp_path: Path) -> None:
     root = tmp_path / "headers"
     paths = _make_paths(root)
     paths.header_jar.parent.mkdir(parents=True, exist_ok=True)
-    expected = {"user-agent": "custom-agent/1.0", "accept": "text/html"}
+    expected = {
+        "user-agent": "custom-agent/1.0",
+        "accept": "text/html",
+        ":authority": "example.org",
+        "host": "example.org",
+        "accept-encoding": "gzip, deflate, br, zstd",
+    }
     paths.header_jar.write_text(json.dumps(expected), encoding="utf-8")
 
     client = HttpClient(http_settings=_http_settings(), paths=paths)
 
     headers = client.default_headers
-    for key, value in expected.items():
-        assert headers.get(key) == value
+    assert headers.get("user-agent") == "custom-agent/1.0"
+    assert headers.get("accept") == "text/html"
+    assert ":authority" not in headers
+    assert "host" not in headers
+    assert headers.get("accept-encoding") == "gzip, deflate, br"
+    # Fallback headers should still be populated when missing from capture.
+    assert "accept-language" in headers
 
 
 def test_header_jar_created_when_missing(tmp_path: Path) -> None:

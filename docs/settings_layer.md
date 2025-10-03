@@ -4,7 +4,7 @@
 - **输入**：可选 `config_path`（CLI `--config` 或环境变量 `WASH_CONFIG`）；默认读取项目根目录下的 `config.toml`。
 - **返回**：`AppConfig`，包含：
   - `default_spider`: 默认爬虫名。
-  - `http`: `HttpSettings`（`timeout`, `min_delay`, `max_delay`, `max_attempts`, `backoff_factor`）。
+  - `http`: `HttpSettings`（`timeout`, `min_delay`, `max_delay`, `max_attempts`, `backoff_factor`, `transport`）。
   - `paths`: `PathSettings`（`data_dir`, `raw_dir`, `translated_dir`, `formatted_dir`, `titles_dir`, `artifacts_dir`, `log_dir`, `state_dir`, `cookie_jar`, `header_jar`, `default_channel`）。
     - 常用方法：`raw_for(channel)`, `translated_for(channel)`, `formatted_for(channel)`, `titles_for(channel)`, `artifacts_for(channel)`。
   - `pipeline`: `PipelineSettings`（`default_channel`, `stages`）。

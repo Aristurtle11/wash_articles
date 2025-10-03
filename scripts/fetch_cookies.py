@@ -8,12 +8,11 @@ import argparse
 import asyncio
 import http.cookiejar
 import json
+import sys
 from pathlib import Path
 from typing import Sequence
 
-import sys
-
-from playwright.async_api import async_playwright
+from playwright.async_api import Request, async_playwright
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -24,9 +23,11 @@ from src.utils.logging import configure_logging, get_logger
 
 LOGGER = get_logger(__name__)
 
-# A realistic User-Agent is crucial for avoiding detection.
-# Using a recent Chrome User-Agent.
-REALISTIC_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+# A realistic User-Agent is crucial for avoiding detection. Match Playwright's bundled Chromium.
+REALISTIC_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
 
 
 async def fetch(url: str, *, config_path: str | None = None) -> None:
@@ -42,31 +43,46 @@ async def fetch(url: str, *, config_path: str | None = None) -> None:
     LOGGER.info("Cookies will be saved to %s", cookie_file_path)
 
     captured_headers: dict[str, str] | None = None
+    header_event = asyncio.Event()
 
-    def _capture_navigation_headers(request) -> None:
+    async def _capture_navigation_headers(request: Request) -> None:
         nonlocal captured_headers
         if captured_headers is not None:
             return
         if not request.is_navigation_request():
             return
-        raw_headers = request.headers
-        captured_headers = {
-            str(key): str(value)
-            for key, value in raw_headers.items()
-            if key.lower() not in {"cookie", "cookie2"}
-        }
+        raw_headers = await request.all_headers()
+        filtered: dict[str, str] = {}
+        for raw_key, raw_value in raw_headers.items():
+            key_str = str(raw_key)
+            key_lower = key_str.lower()
+            if key_str.startswith(":") or key_lower in {"cookie", "cookie2", "host", "content-length"}:
+                continue
+            filtered[key_str] = str(raw_value)
+        captured_headers = filtered
+        header_event.set()
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            chromium_sandbox=False,
+            args=["--disable-dev-shm-usage"],
+        )
         context = await browser.new_context(user_agent=REALISTIC_USER_AGENT)
         page = await context.new_page()
-        page.on("request", _capture_navigation_headers)
+        page.on("request", lambda req: asyncio.create_task(_capture_navigation_headers(req)))
 
         try:
             LOGGER.info("Navigating to the page...")
             # Using 'networkidle' helps ensure that most dynamic content and JS challenges have finished.
             await page.goto(url, wait_until="networkidle", timeout=60000)
             LOGGER.info("Page loaded successfully. Extracting cookies.")
+
+            if captured_headers is None:
+                try:
+                    await asyncio.wait_for(header_event.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    LOGGER.warning("等待导航请求头超时，可能未捕获完整指纹")
 
             # Extract cookies from the browser context
             cookies = await context.cookies()

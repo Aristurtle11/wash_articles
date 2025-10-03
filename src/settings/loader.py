@@ -45,6 +45,7 @@ class HttpSettings:
     max_delay: float
     max_attempts: int
     backoff_factor: float
+    transport: str
 
 
 @dataclass(slots=True)
@@ -425,6 +426,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         max_delay=float(http_section.get("max_delay", 0)),
         max_attempts=int(http_section.get("max_attempts", 3)),
         backoff_factor=float(http_section.get("backoff_factor", 1.5)),
+        transport=str(http_section.get("transport", "auto")),
     )
 
     default_channel = pipeline_section.get("default_channel")

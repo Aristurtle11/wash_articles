@@ -26,13 +26,15 @@ def run(argv: Sequence[str] | None = None) -> None:
 
     LOGGER.info("Starting spider %s", spider_name)
 
+    SpiderClass = get_spider(spider_name)
+    spider_config = config.spiders.get(spider_name, {})
+    transport = spider_config.get("transport", config.http.transport)
+
     client = HttpClient(
         http_settings=config.http,
         paths=config.paths,
+        transport=transport,
     )
-
-    SpiderClass = get_spider(spider_name)
-    spider_config = config.spiders.get(spider_name, {})
     pipelines = [
         TransformPipeline(),
         DataSaverPipeline(config.paths.artifacts_for(spider_name), filename=f"{spider_name}.jsonl"),

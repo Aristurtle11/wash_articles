@@ -14,6 +14,7 @@ max_delay = 1.5
 max_attempts = 3
 backoff_factor = 1.5
 timeout = 10
+transport = "auto"
 
 [pipeline]
 default_channel = "realtor"
@@ -52,4 +53,5 @@ start_url = "https://example.com/"
 
 [[spiders]]
 name = "realtor"
-start_url = "https://www.realtor.com/news/trends/mamdani-effect-new-york-city-mayoral-election-westchester-county/"
+start_url = "https://www.realtor.com/news/real-estate-news/fannie-mae-freddie-mac-government-shutdown/"
+transport = "browser"
