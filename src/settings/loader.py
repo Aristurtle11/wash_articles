@@ -58,6 +58,7 @@ class PathSettings:
     log_dir: Path
     state_dir: Path
     cookie_jar: Path
+    header_jar: Path
     default_channel: str | None = None
 
     @property
@@ -386,6 +387,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
     log_dir = _to_path(paths_section.get("log_dir"), fallback=data_dir / "logs")
     state_dir = _to_path(paths_section.get("state_dir"), fallback=data_dir / "state")
     cookie_path = _to_path(paths_section.get("cookie_jar"), fallback=state_dir / "cookies.txt")
+    header_path = _to_path(paths_section.get("header_jar"), fallback=state_dir / "headers.json")
 
     configured_channel = pipeline_section.get("default_channel")
     default_channel = configured_channel or app_section.get("default_spider")
@@ -413,6 +415,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
             log_dir,
             state_dir,
             cookie_path.parent,
+            header_path.parent,
         )
     )
 
@@ -456,6 +459,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
             log_dir=log_dir,
             state_dir=state_dir,
             cookie_jar=cookie_path,
+            header_jar=header_path,
             default_channel=default_channel,
         ),
         pipeline=pipeline_settings,

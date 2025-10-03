@@ -7,10 +7,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import http.cookiejar
+import json
+from pathlib import Path
 from typing import Sequence
 
 import sys
-from pathlib import Path
 
 from playwright.async_api import async_playwright
 
@@ -34,15 +35,32 @@ async def fetch(url: str, *, config_path: str | None = None) -> None:
     and saves the resulting cookies to a file compatible with http.cookiejar.
     """
     config = load_config(config_path)
-    cookie_file_path = PROJECT_ROOT / config.paths.cookie_jar
+    cookie_file_path = config.paths.cookie_jar
+    header_file_path = config.paths.header_jar
 
     LOGGER.info("Starting Playwright to fetch cookies from %s", url)
     LOGGER.info("Cookies will be saved to %s", cookie_file_path)
+
+    captured_headers: dict[str, str] | None = None
+
+    def _capture_navigation_headers(request) -> None:
+        nonlocal captured_headers
+        if captured_headers is not None:
+            return
+        if not request.is_navigation_request():
+            return
+        raw_headers = request.headers
+        captured_headers = {
+            str(key): str(value)
+            for key, value in raw_headers.items()
+            if key.lower() not in {"cookie", "cookie2"}
+        }
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(user_agent=REALISTIC_USER_AGENT)
         page = await context.new_page()
+        page.on("request", _capture_navigation_headers)
 
         try:
             LOGGER.info("Navigating to the page...")
@@ -80,6 +98,14 @@ async def fetch(url: str, *, config_path: str | None = None) -> None:
             cookie_jar.save(cookie_file_path, ignore_discard=True, ignore_expires=True)
 
             LOGGER.info("Successfully saved %d cookies to %s", len(cookie_jar), cookie_file_path)
+
+            if captured_headers:
+                header_file_path.parent.mkdir(parents=True, exist_ok=True)
+                with header_file_path.open("w", encoding="utf-8") as fp:
+                    json.dump(captured_headers, fp, ensure_ascii=False, indent=2, sort_keys=True)
+                LOGGER.info("Captured %d headers to %s", len(captured_headers), header_file_path)
+            else:
+                LOGGER.warning("未捕获到导航请求头，header_jar 未更新")
 
         except Exception as e:
             LOGGER.error("An error occurred during Playwright operation: %s", e)

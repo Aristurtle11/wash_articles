@@ -5,6 +5,8 @@ from __future__ import annotations
 import gzip
 import http.cookiejar
 import io
+import json
+import logging
 import random
 import time
 import urllib.error
@@ -13,10 +15,13 @@ import urllib.request
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, MutableMapping
+from typing import Mapping
 
-from ..settings import HttpSettings, save_default_headers
+from ..settings import HttpSettings, PathSettings, load_default_headers
 from .rate_limiter import RateLimiter
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -49,17 +54,18 @@ class HttpClient:
         self,
         *,
         http_settings: HttpSettings,
-        cookie_path: Path,
-        default_headers: MutableMapping[str, str] | None = None,
-        header_saver: Callable[[dict[str, str]], None] | None = save_default_headers,
+        paths: PathSettings,
     ) -> None:
         self._http_settings = http_settings
-        self._cookie_path = cookie_path
-        self._header_saver = header_saver
-        self._default_headers: dict[str, str] = dict(default_headers or {})
+        self._cookie_path = paths.cookie_jar
+        self._header_path = paths.header_jar
+        self._default_headers: dict[str, str] = self._load_header_context()
 
-        cookie_path.parent.mkdir(parents=True, exist_ok=True)
-        self._cookie_jar = http.cookiejar.MozillaCookieJar(str(cookie_path))
+        self._cookie_path.parent.mkdir(parents=True, exist_ok=True)
+        self._header_path.parent.mkdir(parents=True, exist_ok=True)
+        self._persist_headers()
+
+        self._cookie_jar = http.cookiejar.MozillaCookieJar(str(self._cookie_path))
         self._load_cookie_jar()
         self._opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(self._cookie_jar)
@@ -176,8 +182,7 @@ class HttpClient:
         if current_cookie == new_cookie:
             return
         self._default_headers["Cookie"] = new_cookie
-        if self._header_saver:
-            self._header_saver(dict(self._default_headers))
+        self._persist_headers()
 
     def _load_cookie_jar(self) -> None:
         try:
@@ -212,6 +217,33 @@ class HttpClient:
             except Exception as exc:  # pragma: no cover - type narrowed at runtime
                 return f"<brotli decode failed: {exc}>"
         return f"<unsupported encoding {encoding}>"
+
+    def _load_header_context(self) -> dict[str, str]:
+        headers = self._read_headers_file(self._header_path)
+        if headers is not None:
+            return headers
+        fallback = load_default_headers()
+        if fallback:
+            return dict(fallback)
+        return {}
+
+    def _read_headers_file(self, path: Path) -> dict[str, str] | None:
+        try:
+            with path.open("r", encoding="utf-8") as fp:
+                data = json.load(fp)
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError) as exc:
+            _LOGGER.warning("加载 header_jar 失败 (%s): %s", path, exc)
+            return None
+        return {str(k): str(v) for k, v in data.items()}
+
+    def _persist_headers(self) -> None:
+        try:
+            with self._header_path.open("w", encoding="utf-8") as fp:
+                json.dump(self._default_headers, fp, ensure_ascii=False, indent=2, sort_keys=True)
+        except OSError as exc:
+            _LOGGER.warning("写入 header_jar 失败 (%s): %s", self._header_path, exc)
 
     def _compute_retry_wait(
         self, exc: urllib.error.HTTPError, attempt: int, backoff_factor: float

@@ -7,7 +7,7 @@ from typing import Sequence
 
 from ..core.http_client import HttpClient
 from ..pipelines import DataSaverPipeline, TransformPipeline
-from ..settings import load_config, load_default_headers
+from ..settings import load_config
 from ..spiders import get_spider
 from ..utils.logging import configure_logging, get_logger
 
@@ -26,11 +26,9 @@ def run(argv: Sequence[str] | None = None) -> None:
 
     LOGGER.info("Starting spider %s", spider_name)
 
-    default_headers = load_default_headers()
     client = HttpClient(
         http_settings=config.http,
-        cookie_path=config.paths.cookie_jar,
-        default_headers=default_headers,
+        paths=config.paths,
     )
 
     SpiderClass = get_spider(spider_name)

@@ -6,6 +6,7 @@ data_dir = "data"
 log_dir = "data/logs"
 state_dir = "data/state"
 cookie_jar = "data/state/cookies.txt"
+header_jar = "data/state/headers.json"
 
 [http]
 min_delay = 0.5
